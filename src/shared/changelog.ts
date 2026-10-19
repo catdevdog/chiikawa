@@ -1,6 +1,6 @@
 /**
  * CHANGELOG.md tells people what a version changed: a `## 1.2.3` heading per version, and under it one `- ` line per
- * change they would notice. A line may be "headline — details"; a notification shows only the headline.
+ * change they would notice. A line is a few sentences; a notification shows only the first one.
  */
 export interface ChangelogEntry {
   version: string;
@@ -58,8 +58,11 @@ export function announcement(entries: readonly ChangelogEntry[], o: { current: s
   return news.sort((a, b) => compareVersions(b.version, a.version));
 }
 
-/** The part of a change before " — ": what a notification has room for. */
-export const headline = (change: string): string => change.split(' — ')[0]!.trim();
+/** The first sentence of a change (up to the first period that ends a word): what a notification has room for. */
+export const headline = (change: string): string => {
+  const text = change.trim();
+  return /^.+?\.(?=\s|$)/s.exec(text)?.[0] ?? text;
+};
 
 /** A few short lines for a notification: the headlines, newest first, and how many more there are. */
 export function summarize(entries: readonly ChangelogEntry[], maxLines = 4): string {
@@ -67,5 +70,5 @@ export function summarize(entries: readonly ChangelogEntry[], maxLines = 4): str
   const more = all.length - maxLines;
   const lines = all.slice(0, more > 0 ? maxLines - 1 : maxLines);
   const rest = all.length - lines.length;
-  return [...lines.map((l) => `· ${l}`), ...(rest > 0 ? [`… 외 ${rest}가지`] : [])].join('\n');
+  return [...lines.map((l) => `- ${l}`), ...(rest > 0 ? [`외 ${rest}가지가 더 있습니다.`] : [])].join('\n');
 }
