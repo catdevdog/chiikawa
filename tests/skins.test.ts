@@ -64,6 +64,18 @@ describe('bundled skins', () => {
         if (raw.textColor !== undefined) expect(manifest.textColor).toBe(raw.textColor);
       });
 
+      it('has actions that are all kept (each has a pose the skin has) and a few words for most of them', () => {
+        const raw = JSON.parse(readFileSync(path.join(dir, 'manifest.json'), 'utf8'));
+        const manifest = parseManifest(raw, id);
+        expect(Object.keys(manifest.actions ?? {}), `${id}: an action was dropped as malformed`).toEqual(Object.keys(raw.actions ?? {}));
+        for (const [name, action] of Object.entries(manifest.actions ?? {})) {
+          expect(manifest.poses[action.pose], `${id}: action ${name} needs the pose ${action.pose}`).toBeTruthy();
+          expect(action.lines.length, `${id}: action ${name} says nothing`).toBeGreaterThan(0);
+          // the picture may be a pose that is also used for a state (a cheer in the colours of a landing)
+          expect(action.ms, `${id}: action ${name}`).toBeGreaterThanOrEqual(1500);
+        }
+      });
+
       it('has something to say in every situation', () => {
         const manifest = parseManifest(JSON.parse(readFileSync(path.join(dir, 'manifest.json'), 'utf8')), id);
         for (const event of SAY_EVENTS) expect(manifest.lines?.[event]?.length ?? 0, `${id}: lines.${event}`).toBeGreaterThan(0);

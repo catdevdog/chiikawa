@@ -198,6 +198,8 @@ function registerIpc(): void {
     if (key === lastSkin) return;
     lastSkin = key;
     stage.setSkin(skin);
+    // the menu offers a trick only to a skin that has one
+    void rebuildMenu();
   });
   ipcMain.on(IPC.battery, (e, raw: unknown) => {
     if (overlayOf(e)) onBattery(raw);
@@ -217,6 +219,10 @@ function setHidden(hidden: boolean): void {
 
 function toggleHidden(): void {
   setHidden(!stage.isHidden);
+}
+
+function performTrick(): void {
+  stage.perform();
 }
 
 function callPet(): void {
@@ -310,6 +316,7 @@ async function rebuildMenu(): Promise<void> {
   lastMenu = Menu.buildFromTemplate([
     { label: `${s.call} (${shortcutLabel(CALL_KEY)})`, click: () => callPet() },
     { label: `${stage.isHidden ? s.show : s.hide} (${shortcutLabel(HIDE_KEY)})`, click: () => toggleHidden() },
+    ...(stage.hasActions ? [{ label: s.perform, enabled: !stage.isHidden, click: () => performTrick() } as MenuItemConstructorOptions] : []),
     { type: 'separator' },
     {
       label: s.mode,
@@ -356,6 +363,10 @@ async function rebuildMenu(): Promise<void> {
     { label: s.makeSkin, click: () => openMaker() },
     { type: 'separator' },
     { label: s.clickThrough, type: 'checkbox', checked: settings.clickThrough, click: (i) => update({ clickThrough: i.checked }) },
+    // only a skin with tricks has anything to switch off
+    ...(stage.hasActions
+      ? [{ label: s.tricksAuto, type: 'checkbox', checked: settings.tricks, click: (i) => update({ tricks: i.checked }) } as MenuItemConstructorOptions]
+      : []),
     { label: s.autoStart, type: 'checkbox', checked: settings.autoStart, click: (i) => update({ autoStart: i.checked }) },
     // only a build that can update itself has something to switch off
     ...(updates?.mode === 'auto'
@@ -413,6 +424,9 @@ function exposeTestHooks(): void {
     hide: (hidden: boolean) => setHidden(hidden),
     hidden: () => stage.isHidden,
     call: () => callPet(),
+    /** does a trick (one by name, or any) and says whether there was one to do */
+    perform: (name?: string) => stage.perform(name),
+    hasActions: () => stage.hasActions,
     /** what the computer tells the pet: a notice, or a battery report as an overlay sends it */
     notice: (event: NoticeEvent) => stage.notice(event),
     battery: (raw: unknown) => onBattery(raw),

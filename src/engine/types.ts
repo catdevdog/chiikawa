@@ -24,9 +24,14 @@ export type PetState =
   | 'fall'
   | 'land'
   | 'surprised'
-  | 'happy';
+  | 'happy'
+  /** doing one of the skin's actions (a short show with a picture of its own); not a pose a skin maps by state */
+  | 'act';
 
-export const PET_STATES: readonly PetState[] = [
+/** The states a skin draws with poses of its own (`states` and `motion` in a manifest are keyed by these). */
+export type PoseState = Exclude<PetState, 'act'>;
+
+export const PET_STATES: readonly PoseState[] = [
   'idle',
   'walk',
   'run',
@@ -90,6 +95,32 @@ export type SayEvent =
 
 /** What happens on the computer that the pet notices: the user is back, the charger goes in or out, the battery runs low. */
 export type NoticeEvent = 'welcome' | 'plug' | 'unplug' | 'lowBattery';
+
+/** What the engine does with the picture of an action: hop on the spot, rock from side to side, only breathe, or nothing (the picture moves itself). */
+export type ActionMotion = 'bounce' | 'sway' | 'still' | 'off';
+export const ACTION_MOTIONS: readonly ActionMotion[] = ['bounce', 'sway', 'still', 'off'];
+
+/** The situations in which a skin's action may be done instead of the ordinary reaction. */
+export type ActionTrigger = NoticeEvent | 'call';
+export const ACTION_TRIGGERS: readonly ActionTrigger[] = ['welcome', 'plug', 'unplug', 'lowBattery', 'call'];
+
+/** Something a pet does now and then besides walking and sitting: a short show with a picture of its own. */
+export interface ActionDef {
+  /** the pose that is drawn while it lasts (a key of the skin's poses) */
+  pose: string;
+  /** how long it lasts, in ms */
+  ms: number;
+  /** how often it is chosen compared with the other actions */
+  weight: number;
+  motion: ActionMotion;
+  /** the situations that make the pet do this instead of just reacting */
+  on: ActionTrigger[];
+  /** what the pet says as it starts (when it was not started by one of the situations in `on`) */
+  lines: Line[];
+}
+
+/** A skin's actions by name. */
+export type Actions = Record<string, ActionDef>;
 
 export const SAY_EVENTS: readonly SayEvent[] = [
   'start',
@@ -187,4 +218,6 @@ export interface PetView {
   interactive: boolean;
   /** false when nothing needs a smooth frame rate (sleeping, sitting, idle) */
   animating: boolean;
+  /** while the pet acts: the pose of the action to draw in place of the one for its state; otherwise null */
+  action: string | null;
 }

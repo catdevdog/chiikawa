@@ -1,4 +1,4 @@
-import type { Lines, Mode, PetView, Rect, Roam, SpeechLevel } from '../engine/types';
+import type { Actions, Lines, Mode, PetView, Rect, Roam, SpeechLevel } from '../engine/types';
 
 export interface Settings {
   mode: Mode;
@@ -14,6 +14,8 @@ export interface Settings {
   monitor: string;
   /** what the pet says: "all" (answers and murmurs), "reactions" (only answers), "off" */
   speech: SpeechLevel;
+  /** the pet does one of its actions now and then on its own (it still does them when asked, and for a situation) */
+  tricks: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -26,6 +28,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autoUpdate: true,
   monitor: 'all',
   speech: 'all',
+  tricks: true,
 };
 
 export interface SkinInfo {
@@ -76,6 +79,8 @@ export interface SkinReport {
   hitbox: Rect;
   /** what the skin says, by situation */
   lines: Lines;
+  /** what the skin does now and then */
+  actions: Actions;
 }
 
 export const IPC = {

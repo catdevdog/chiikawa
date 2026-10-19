@@ -19,6 +19,7 @@ const view = (over: Partial<PetView> = {}): PetView => ({
   hitbox: { x: 60, y: 400, w: 80, h: 100 },
   interactive: true,
   animating: true,
+  action: null,
   ...over,
 });
 const frame = (over: Partial<ViewFrame> = {}): ViewFrame => ({ view: view(), vx: 100, vy: -50, ...over });

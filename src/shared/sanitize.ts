@@ -22,5 +22,6 @@ export function sanitizeSettings(raw: unknown): Settings {
     autoUpdate: typeof r.autoUpdate === 'boolean' ? r.autoUpdate : d.autoUpdate,
     monitor: isMonitorChoice(r.monitor) ? r.monitor : d.monitor,
     speech: SPEECH_LEVELS.includes(r.speech as SpeechLevel) ? (r.speech as SpeechLevel) : d.speech,
+    tricks: typeof r.tricks === 'boolean' ? r.tricks : d.tricks,
   };
 }

@@ -3,7 +3,7 @@ import { mulberry32, type Vec2 } from '../src/engine';
 import { DEFAULT_SETTINGS, type Area, type Settings, type SkinReport, type ViewFrame } from '../src/shared/types';
 import { Stage, type StageWindow } from '../src/shell/stage';
 
-const GEOMETRY: SkinReport = { box: { w: 128, h: 128, anchorX: 0.5, anchorY: 0.94 }, hitbox: { x: 0.18, y: 0.22, w: 0.64, h: 0.72 }, lines: {} };
+const GEOMETRY: SkinReport = { box: { w: 128, h: 128, anchorX: 0.5, anchorY: 0.94 }, hitbox: { x: 0.18, y: 0.22, w: 0.64, h: 0.72 }, lines: {}, actions: {} };
 const SETTINGS: Settings = { ...DEFAULT_SETTINGS, mode: 'wander', roam: 'floor', skin: 'default' };
 
 // two monitors side by side; the right one is taller, so its floor is lower
@@ -381,7 +381,7 @@ describe('the screens change', () => {
   it('follows a new skin size', () => {
     const { run, stage } = setup([LEFT]);
     run(50);
-    stage.setSkin({ box: { w: 256, h: 256, anchorX: 0.5, anchorY: 0.9 }, hitbox: { x: 0.2, y: 0.2, w: 0.6, h: 0.75 }, lines: {} });
+    stage.setSkin({ box: { w: 256, h: 256, anchorX: 0.5, anchorY: 0.9 }, hitbox: { x: 0.2, y: 0.2, w: 0.6, h: 0.75 }, lines: {}, actions: {} });
     run(32);
     const r = stage.view!.hitbox;
     expect(r.w).toBeCloseTo(256 * 0.6);
@@ -518,5 +518,68 @@ describe('putting the pet away', () => {
     t.stage.notice('welcome');
     t.run(32);
     expect(said(t.wins[0]!)).toContain('어서 와~');
+  });
+});
+
+describe('actions', () => {
+  const SHOW: SkinReport = {
+    ...GEOMETRY,
+    actions: { camera: { pose: 'camera', ms: 3000, weight: 1, motion: 'still', on: [], lines: [{ text: '찰칵!', style: 'float' }] } },
+  };
+  const said = (win: FakeWindow): string[] => (win.last?.view.particles ?? []).filter((p) => p.kind === 'text').map((p) => p.text!);
+
+  it('knows whether the skin on screen has any, and does one when asked', () => {
+    const t = setup([LEFT]);
+    t.run(200);
+    expect(t.stage.hasActions).toBe(false);
+    expect(t.stage.perform()).toBe(false);
+    t.stage.setSkin(SHOW);
+    expect(t.stage.hasActions).toBe(true);
+    expect(t.stage.perform()).toBe(true);
+    t.run(32);
+    expect(t.stage.view!.state).toBe('act');
+    expect(t.stage.view!.action).toBe('camera');
+    expect(t.wins[0]!.last!.view.action).toBe('camera');
+    expect(said(t.wins[0]!)).toContain('찰칵!');
+  });
+
+  it('has them from the start when the skin is already there at the time the pet appears', () => {
+    const wins = [new FakeWindow(LEFT)];
+    const stage = new Stage({ cursor: () => ({ x: -500, y: -500 }), covered: () => false, rng: mulberry32(3) }, SETTINGS);
+    stage.setSkin(SHOW);
+    stage.setWindows(wins);
+    expect(stage.hasActions).toBe(true);
+  });
+
+  it('does none on its own when the setting says so', () => {
+    const quiet = { ...SETTINGS, tricks: false };
+    const t = setup([LEFT], quiet);
+    t.stage.setSkin({ ...SHOW, actions: { camera: { ...SHOW.actions.camera!, weight: 1 } } });
+    const states = new Set<string>();
+    for (let i = 0; i < 6000; i++) {
+      t.run(16);
+      states.add(t.stage.view!.state);
+    }
+    expect(states.has('act')).toBe(false);
+    expect(t.stage.perform()).toBe(true);
+    t.stage.setSettings(SETTINGS);
+  });
+
+  it('loses them when the skin changes to one without', () => {
+    const t = setup([LEFT]);
+    t.stage.setSkin(SHOW);
+    t.run(100);
+    t.stage.setSkin(GEOMETRY);
+    expect(t.stage.hasActions).toBe(false);
+  });
+
+  it('does not show a trick to a pet that is put away', () => {
+    const t = setup([LEFT]);
+    t.stage.setSkin(SHOW);
+    t.run(100);
+    t.stage.setHidden(true);
+    expect(t.stage.perform()).toBe(false);
+    t.stage.setHidden(false);
+    expect(t.stage.perform()).toBe(true);
   });
 });

@@ -44,7 +44,7 @@ async function watchBattery(): Promise<void> {
   }
 }
 
-const reportOf = (skin: Skin): SkinReport => ({ box: { ...skin.box }, hitbox: { ...skin.hitbox }, lines: skin.lines });
+const reportOf = (skin: Skin): SkinReport => ({ box: { ...skin.box }, hitbox: { ...skin.hitbox }, lines: skin.lines, actions: skin.actions });
 
 /**
  * In Electron this window only draws: the main process simulates the pet for all monitors and sends what to
@@ -86,6 +86,7 @@ async function start(): Promise<void> {
     host.reportSkin(reportOf(next));
     pet?.setSprite(next.box, next.hitbox);
     pet?.setLines(next.lines);
+    pet?.setActions(next.actions);
     lastDraw = 0;
   };
   await loadSkinNow(settings.skin);
@@ -110,7 +111,9 @@ async function start(): Promise<void> {
     : null;
   pet?.setInteractive(!settings.clickThrough);
   pet?.setSpeech(settings.speech);
+  pet?.setTricks(settings.tricks);
   pet?.setLines(skin!.lines);
+  pet?.setActions(skin!.actions);
 
   const layout = (): void => {
     view.width = innerWidth;
@@ -143,6 +146,7 @@ async function start(): Promise<void> {
       pet.setScale(next.scale);
       pet.setRoam(next.roam);
       pet.setSpeech(next.speech);
+      pet.setTricks(next.tricks);
       pet.setInteractive(!next.clickThrough);
     }
     if (next.skin !== prev.skin) await loadSkinNow(next.skin);
@@ -155,7 +159,7 @@ async function start(): Promise<void> {
       // click-through windows may not deliver a "leave", so the global cursor decides when hover ends
       if (!pet.isOver(p)) pet.pointerLeave();
     });
-    panel = mountHarness({ settings, skins: info.skins, patch: (p) => host.patchSettings?.(p) });
+    panel = mountHarness({ settings, skins: info.skins, patch: (p) => host.patchSettings?.(p), perform: () => void pet.perform() });
     (window as unknown as { __buddy: unknown }).__buddy = {
       pet,
       get skin() {

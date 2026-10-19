@@ -117,6 +117,18 @@ idle, sit, sleep, wake, cross (walking over to another monitor), call (called ov
 tray or Ctrl+Alt+Shift+C), welcome (the user is back: unlock, wake from sleep), plug, unplug
 (the charger goes in or out), lowBattery.
 
+Actions (optional): short shows with pictures of their own, now and then or for a situation.
+Put the pictures in "poses" and list them:
+
+  "actions": {
+    "camera": { "pose": "camera", "ms": 3600, "motion": "still", "say": ["Say cheese!"] },
+    "cheer": { "pose": "cheer", "on": ["welcome", "plug"] }
+  }
+
+"ms" is how long (800-20000), "weight" how often compared with the others, "motion" what is done with a still
+picture ("bounce", "sway", "still", or "off" for a picture that moves itself), "on" the situations (welcome, plug,
+unplug, lowBattery, call) that do it instead of the plain reaction. The skin maker makes these from "Trick 1-4".
+
 스킨 폴더 사용법
 ================
 위처럼 스킨마다 폴더를 만들고 manifest.json과 이미지(idle은 필수)를 넣으세요.
@@ -130,6 +142,12 @@ tray or Ctrl+Alt+Shift+C), welcome (the user is back: unlock, wake from sleep), 
 flee, follow, attach, idle, sit, sleep, wake, cross(다른 모니터로 건너갈 때), call(불렀을 때),
 welcome(자리로 돌아왔을 때: 잠금 해제·절전 복귀), plug·unplug(충전기를 꽂고 뺄 때), lowBattery(배터리 부족).
 트레이 메뉴 "대사"에서 끄거나 반응할 때만 말하게 할 수 있어요.
+
+재롱(선택): "actions"에 적으면 펫이 가끔, 또는 어떤 상황에서 그림으로 짧은 행동을 해요. 그림은 "poses"에
+다른 포즈처럼 넣고 이렇게 적어요: "actions": { "camera": { "pose": "camera", "ms": 3600, "motion": "still",
+"say": ["찰칵!"] } }. ms는 길이(800~20000), weight는 확률 비율, motion은 정지 그림을 움직이는 방법
+(bounce, sway, still, 그림이 스스로 움직이면 off), on은 일반 반응 대신 이 재롱을 하는 상황(welcome, plug,
+unplug, lowBattery, call)이에요. 스킨 메이커에서는 포즈를 "재롱 1~4"로 고르면 만들어져요.
 `;
 
 /** Creates the user skin folder with a short how-to so "open skin folder" is not an empty mystery. */

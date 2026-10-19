@@ -1,5 +1,8 @@
 import {
   DEFAULT_CONFIG,
+  type ActionDef,
+  type Actions,
+  type ActionTrigger,
   type Line,
   type Lines,
   type Mode,
@@ -42,6 +45,9 @@ const CALL_FAR = 900;
 /** a called pet that has not arrived by now drops in; if it still has not arrived this long after, it stops trying */
 const CALL_DROP_MS = 6000;
 const CALL_GIVE_UP_MS = 6000;
+/** how likely the pet is to do one of its actions each time it decides what to do next, and in previews and tests */
+const ACTION_CHANCE = 0.12;
+const ACTION_CHATTY_CHANCE = 0.5;
 
 export interface PetOptions {
   /** one screen from the origin; its bottom edge is the floor */
@@ -92,6 +98,12 @@ export class Pet {
   private summoned = false;
   private summonMs = 0;
   private summonDropped = false;
+  /** what the skin has the pet do now and then; which one it is doing, and which it did last */
+  private actions: Actions = {};
+  private act: { name: string; def: ActionDef } | null = null;
+  private lastAct: string | null = null;
+  /** may it start an action of its own accord (asked for, or for a situation, it always does) */
+  private tricks = true;
 
   private cursor: Vec2 | null = null;
   private prevCursor: Vec2 | null = null;
@@ -134,7 +146,7 @@ export class Pet {
     this.view = {
       x: 0, y: 0, facing: 1, state: 'idle', t: 0, sx: 1, sy: 1, rot: 0, lift: 0, pivot: 'feet',
       scale: this.cfg.scale, particles: this.particles, hitbox: { x: 0, y: 0, w: 0, h: 0 },
-      interactive: true, animating: false,
+      interactive: true, animating: false, action: null,
     };
     if (this.mode === 'attach') this.startHold();
     this.syncView();
@@ -190,6 +202,36 @@ export class Pet {
     this.speaker.setLevel(level);
   }
 
+  /** What the skin has the pet do now and then (its pictures live in the skin; the engine only times it). */
+  setActions(actions: Actions | null): void {
+    this.actions = actions ?? {};
+    // the skin changed under an action that is no longer there
+    if (this.state === 'act' && !(this.act && this.actions[this.act.name])) this.settle();
+  }
+
+  get hasActions(): boolean {
+    return Object.keys(this.actions).length > 0;
+  }
+
+  /** Whether the pet does its actions now and then on its own. */
+  setTricks(on: boolean): void {
+    this.tricks = on;
+  }
+
+  /**
+   * Does one of the actions now, as if it had felt like it: `name`, or any one. False when there is none to do,
+   * or the pet is in someone's hand or in the air.
+   */
+  perform(name?: string): boolean {
+    if (this.holder || this.state === 'held' || this.state === 'fall' || this.state === 'land') return false;
+    const pick = name ? (this.actions[name] ? ([name, this.actions[name]!] as const) : null) : this.pickAction(null);
+    if (!pick) return false;
+    this.summoned = false;
+    if (this.state === 'sleep') this.rouse();
+    this.startAction(pick[0], pick[1], false);
+    return true;
+  }
+
   /** Says something for a situation, if the skin has words for it and it is not too soon. */
   say(event: SayEvent): void {
     const holding = this.particles.some((p) => p.kind === 'text' && p.style === 'hold' && p.age < p.life - 400);
@@ -224,7 +266,9 @@ export class Pet {
     // in someone's hand or in the air it can only say it
     if (this.state !== 'held' && this.state !== 'fall' && this.state !== 'land') {
       if (this.state === 'sleep') this.rouse();
-      this.react(event === 'welcome' || event === 'plug' ? 'happy' : 'surprised');
+      const act = this.pickAction(event);
+      if (act) this.startAction(act[0], act[1], true);
+      else this.react(event === 'welcome' || event === 'plug' ? 'happy' : 'surprised');
     }
     this.say(event);
   }
@@ -348,7 +392,8 @@ export class Pet {
       this.startFall(0, 0);
       return;
     }
-    if (this.summoned) {
+    // an action that something else started (a situation, say) is finished before the pet goes on to the cursor
+    if (this.summoned && this.state !== 'act') {
       this.stepSummon(dt);
       return;
     }
@@ -367,8 +412,56 @@ export class Pet {
     const eff = this.effective();
     if (eff === 'wander') this.maybeFlee();
     if (this.state === 'surprised') return;
+    if (this.state === 'act') {
+      this.stepAct(eff);
+      return;
+    }
     if (eff === 'follow') this.stepFollow(dt);
     else this.stepWander(dt);
+  }
+
+  /** Busy with an action: it goes on until it is over, unless the mouse calls the pet away. */
+  private stepAct(eff: Exclude<Mode, 'auto'>): void {
+    const c = this.cursor;
+    const called = eff === 'follow' && c !== null && dist(this.center(), c) > this.k(this.cfg.followStart);
+    if (called || !this.act || this.stateMs >= this.act.def.ms) this.settle();
+  }
+
+  /** A chance, when the pet has just decided what to do next, that it does one of its actions. */
+  private maybeAct(): boolean {
+    if (!this.tricks || !this.hasActions || (this.state !== 'idle' && this.state !== 'sit')) return false;
+    if (this.rng() >= (this.speaker.chatty ? ACTION_CHATTY_CHANCE : ACTION_CHANCE)) return false;
+    const pick = this.pickAction(null);
+    if (!pick) return false;
+    this.startAction(pick[0], pick[1], false);
+    return true;
+  }
+
+  /** One of the actions, by weight and never the one just done (unless it is the only one): all of them, or those made for `trigger`. */
+  private pickAction(trigger: ActionTrigger | null): readonly [string, ActionDef] | null {
+    let pool = Object.entries(this.actions).filter(([, def]) => trigger === null || def.on.includes(trigger));
+    if (pool.length > 1) pool = pool.filter(([name]) => name !== this.lastAct);
+    if (pool.length === 0) return null;
+    let at = this.rng() * pool.reduce((sum, [, def]) => sum + def.weight, 0);
+    for (const entry of pool) {
+      at -= entry[1].weight;
+      if (at <= 0) return entry;
+    }
+    return pool[pool.length - 1]!;
+  }
+
+  /** `quiet`: something else is said for it (the situation that set it off), so the action says nothing of its own. */
+  private startAction(name: string, def: ActionDef, quiet: boolean): void {
+    this.act = { name, def };
+    this.lastAct = name;
+    this.target = null;
+    this.fleeDir = null;
+    this.vel = { x: 0, y: 0 };
+    this.interactionIdleMs = 0;
+    this.enter('act', true);
+    if (quiet) return;
+    const line = this.speaker.pickFrom(`action:${name}`, def.lines, this.time);
+    if (line) this.spawnText(line);
   }
 
   /** On the way to a user who called: runs to the cursor, and answers when it is beside it. */
@@ -391,7 +484,9 @@ export class Pet {
       this.summoned = false;
       this.target = null;
       this.facing = c.x >= this.pos.x ? 1 : -1;
-      this.react('happy');
+      const act = this.pickAction('call');
+      if (act) this.startAction(act[0], act[1], true);
+      else this.react('happy');
       this.say('call');
       return;
     }
@@ -437,6 +532,7 @@ export class Pet {
     }
     this.decideIn -= dt;
     if (this.decideIn > 0) return;
+    if (this.maybeAct()) return;
     const r = this.rng();
     if (r < 0.55) {
       this.target = this.pickTarget();
@@ -478,6 +574,16 @@ export class Pet {
     if (Math.abs(c.x - this.pos.x) > 12) this.facing = c.x >= this.pos.x ? 1 : -1;
     if (this.state === 'idle' && this.cursorIdleMs > 3000) this.enter('sit');
     else if (this.state === 'sit' && this.cursorIdleMs < 400) this.enter('idle');
+    else if (this.state === 'sit') this.keepCompany(dt);
+  }
+
+  /** Sitting beside a mouse that does not move (the user is busy): now and then a trick, for company. */
+  private keepCompany(dt: number): void {
+    if (!this.tricks || !this.hasActions) return;
+    this.decideIn -= dt;
+    if (this.decideIn > 0) return;
+    this.decideIn = 5000 + this.rng() * 5000;
+    this.maybeAct();
   }
 
   private stepHeld(dt: number): void {
@@ -1065,6 +1171,23 @@ export class Pet {
         sx = 1 - (hop - 0.5) * 0.04;
         break;
       }
+      case 'act': {
+        // 'off': the picture moves by itself
+        const motion = this.act?.def.motion ?? 'still';
+        if (motion === 'bounce') {
+          const hop = Math.abs(Math.sin(Math.PI * ((t * 1.5) % 1)));
+          lift = hop * 9 * s;
+          sy = 1 + (hop - 0.5) * 0.05;
+          sx = 1 - (hop - 0.5) * 0.04;
+        } else if (motion === 'sway') {
+          rot = Math.sin((t * 2 * Math.PI) / 1.2) * 0.07;
+          sy = 1 + 0.012 * breathe;
+        } else if (motion === 'still') {
+          sy = 1 + 0.02 * breathe;
+          sx = 1 - 0.012 * breathe;
+        }
+        break;
+      }
     }
 
     v.x = this.pos.x;
@@ -1082,5 +1205,6 @@ export class Pet {
     v.hitbox = this.hitbox();
     v.interactive = this.canInteract();
     v.animating = this.particles.length > 0 || !(this.state === 'idle' || this.state === 'sit' || this.state === 'sleep');
+    v.action = this.state === 'act' ? (this.act?.def.pose ?? null) : null;
   }
 }

@@ -22,22 +22,27 @@ export function parseLines(raw: unknown): Lines {
   if (!raw || typeof raw !== 'object') return {};
   const out: Lines = {};
   for (const event of SAY_EVENTS) {
-    const list = (raw as Record<string, unknown>)[event];
-    if (!Array.isArray(list)) continue;
-    const lines: Line[] = [];
-    for (const item of list) {
-      const obj = item && typeof item === 'object' ? (item as Record<string, unknown>) : null;
-      const source = typeof item === 'string' ? item : typeof obj?.text === 'string' ? obj.text : null;
-      if (source === null) continue;
-      const text = [...source.replace(/\p{Cc}/gu, ' ').replace(/\s+/g, ' ').trim()].slice(0, MAX_LINE_CHARS).join('');
-      if (!text) continue;
-      const wanted = obj?.style;
-      lines.push({ text, style: wanted === 'float' || wanted === 'hold' ? wanted : classify(text) });
-      if (lines.length >= MAX_LINES_PER_EVENT) break;
-    }
+    const lines = parseLineList((raw as Record<string, unknown>)[event]);
     if (lines.length > 0) out[event] = lines;
   }
   return out;
+}
+
+/** One list of lines: `["하아?", { "text": "...", "style": "hold" }]`. Anything that is not text, and what is past the limits, is dropped. */
+export function parseLineList(list: unknown): Line[] {
+  const lines: Line[] = [];
+  if (!Array.isArray(list)) return lines;
+  for (const item of list) {
+    const obj = item && typeof item === 'object' ? (item as Record<string, unknown>) : null;
+    const source = typeof item === 'string' ? item : typeof obj?.text === 'string' ? obj.text : null;
+    if (source === null) continue;
+    const text = [...source.replace(/\p{Cc}/gu, ' ').replace(/\s+/g, ' ').trim()].slice(0, MAX_LINE_CHARS).join('');
+    if (!text) continue;
+    const wanted = obj?.style;
+    lines.push({ text, style: wanted === 'float' || wanted === 'hold' ? wanted : classify(text) });
+    if (lines.length >= MAX_LINES_PER_EVENT) break;
+  }
+  return lines;
 }
 
 /** A rough width of `text` set at `size` px: letters narrow, Hangul, kana and other wide characters a full em. */
@@ -102,7 +107,7 @@ export class Speaker {
   private lines: Lines = {};
   private level: SpeechLevel = 'all';
   private spoke = new Map<SayEvent, number>();
-  private said = new Map<SayEvent, string>();
+  private said = new Map<string, string>();
   private lastAny = -Infinity;
 
   constructor(private readonly rng: () => number) {}
@@ -120,6 +125,25 @@ export class Speaker {
     return SAY_EVENTS.some((e) => (this.lines[e]?.length ?? 0) > 0);
   }
 
+  /**
+   * A line from `pool` for something the pet is doing (`key` names it): said at every level but "off", over any other
+   * words, and never the same line twice in a row. Without lines it does nothing and uses no random numbers.
+   */
+  pickFrom(key: string, pool: readonly Line[], now: number): Line | null {
+    if (this.level === 'off' || pool.length === 0) return null;
+    const line = this.choose(key, pool);
+    this.lastAny = now;
+    return line;
+  }
+
+  private choose(key: string, pool: readonly Line[]): Line {
+    let i = Math.floor(this.rng() * pool.length) % pool.length;
+    if (pool.length > 1 && pool[i]!.text === this.said.get(key)) i = (i + 1) % pool.length;
+    const line = pool[i]!;
+    this.said.set(key, line.text);
+    return line;
+  }
+
   /** The line for `event` at time `now` (ms), or null. `busy`: held words are still up. */
   pick(event: SayEvent, now: number, busy: boolean): Line | null {
     const pool = this.lines[event];
@@ -130,11 +154,8 @@ export class Speaker {
     if (now - (this.spoke.get(event) ?? -Infinity) < cooldown) return null;
     if (!rule.urgent && (busy || now - this.lastAny < (this.chatty ? GAP_MS / 3 : GAP_MS))) return null;
     if (!this.chatty && rule.chance < 1 && this.rng() >= rule.chance) return null;
-    let i = Math.floor(this.rng() * pool.length) % pool.length;
-    if (pool.length > 1 && pool[i]!.text === this.said.get(event)) i = (i + 1) % pool.length;
-    const line = pool[i]!;
+    const line = this.choose(event, pool);
     this.spoke.set(event, now);
-    this.said.set(event, line.text);
     this.lastAny = now;
     return line;
   }

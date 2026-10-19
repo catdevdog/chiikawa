@@ -1,5 +1,6 @@
+import { parseActions } from '../engine/actions.ts';
 import { parseLines } from '../engine/speech.ts';
-import { DEFAULT_CONFIG, PET_STATES, type Lines, type PetState, type Rect } from '../engine/types.ts';
+import { DEFAULT_CONFIG, PET_STATES, type Actions, type Lines, type PoseState, type Rect } from '../engine/types.ts';
 import { parseNames, type Lang } from './skin-name.ts';
 
 /** A pose stored as a sprite sheet: frames laid out left to right, top to bottom. */
@@ -30,11 +31,13 @@ export interface SkinManifest {
   facing?: 'left' | 'right';
   poses: Record<string, PoseSource>;
   /** optional state -> pose name overrides */
-  states?: Partial<Record<PetState, string>>;
+  states?: Partial<Record<PoseState, string>>;
   /** states whose artwork already moves: the engine's hop and squash is skipped for them */
-  motion?: Partial<Record<PetState, 'auto' | 'off'>>;
+  motion?: Partial<Record<PoseState, 'auto' | 'off'>>;
   /** what the pet says, by situation: `{ "click": ["하아?", { "text": "...", "style": "hold" }] }` */
   lines?: Lines;
+  /** what the pet does now and then with pictures of its own: `{ "camera": { "pose": "camera", "ms": 3600, "say": ["찰칵!"] } }` */
+  actions?: Actions;
   /** colour of the words, "#rrggbb" */
   textColor?: string;
 }
@@ -69,8 +72,8 @@ export function parseManifest(raw: unknown, id: string): SkinManifest {
   }
   if (!poses.idle) throw new Error(`skin "${id}": "poses.idle" is required`);
 
-  const states: Partial<Record<PetState, string>> = {};
-  const motion: Partial<Record<PetState, 'auto' | 'off'>> = {};
+  const states: Partial<Record<PoseState, string>> = {};
+  const motion: Partial<Record<PoseState, 'auto' | 'off'>> = {};
   for (const s of PET_STATES) {
     const st = m.states?.[s];
     if (typeof st === 'string' && st) states[s] = st;
@@ -95,6 +98,7 @@ export function parseManifest(raw: unknown, id: string): SkinManifest {
     states,
     motion,
     lines: parseLines(m.lines),
+    actions: parseActions(m.actions, new Map(Object.entries(poses).map(([name, p]) => [name, typeof p === 'string' ? /\.(gif|apng)$/i.test(p) : p.count > 1]))),
     textColor: typeof m.textColor === 'string' && /^#[0-9a-f]{6}$/i.test(m.textColor) ? m.textColor : undefined,
   };
 }

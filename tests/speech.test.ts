@@ -174,6 +174,42 @@ describe('Speaker', () => {
     expect(sp.pick('plug', 70_000, false)).toBeNull();
   });
 
+  describe('words for what the pet is doing', () => {
+    const pool = parseLines({ click: ['a', 'b', 'c'] }).click!;
+
+    it('picks from the pool, never the same line twice in a row', () => {
+      const sp = new Speaker(() => 0);
+      let last = '';
+      for (let i = 0; i < 12; i++) {
+        const line = sp.pickFrom('action:camera', pool, 1000 + i)!;
+        expect(line.text).not.toBe(last);
+        last = line.text;
+      }
+    });
+
+    it('is said at the level "reactions" too, and not at "off"', () => {
+      const sp = new Speaker(() => 0);
+      sp.setLevel('reactions');
+      expect(sp.pickFrom('action:camera', pool, 1000)).not.toBeNull();
+      sp.setLevel('off');
+      expect(sp.pickFrom('action:camera', pool, 2000)).toBeNull();
+    });
+
+    it('keeps the lines of one action apart from another\'s', () => {
+      const sp = new Speaker(() => 0);
+      const one = parseLines({ click: ['only'] }).click!;
+      expect(sp.pickFrom('action:a', one, 1)!.text).toBe('only');
+      expect(sp.pickFrom('action:b', one, 2)!.text).toBe('only');
+    });
+
+    it('has nothing to say, and asks for no random number, when the pool is empty', () => {
+      let asked = 0;
+      const sp = new Speaker(() => (asked++, 0));
+      expect(sp.pickFrom('action:x', [], 1000)).toBeNull();
+      expect(asked).toBe(0);
+    });
+  });
+
   it('every situation has a rule', () => {
     const sp = new Speaker(() => 0);
     sp.setLines(Object.fromEntries(SAY_EVENTS.map((e) => [e, [{ text: '야하!', style: 'float' }]])));

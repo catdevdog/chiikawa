@@ -96,6 +96,16 @@ export class Stage {
     this.pet?.call();
   }
 
+  /** Does the skin on screen have any actions to show? */
+  get hasActions(): boolean {
+    return this.pet?.hasActions ?? false;
+  }
+
+  /** The user asks to see a trick: one of the skin's actions now. False when there is none to do, or the pet is away. */
+  perform(name?: string): boolean {
+    return !this.hidden && (this.pet?.perform(name) ?? false);
+  }
+
   /** Something happened on the computer. A pet that is put away has nothing to show for it. */
   notice(event: NoticeEvent): void {
     if (!this.hidden) this.pet?.notice(event);
@@ -122,6 +132,7 @@ export class Stage {
     if (this.pet) {
       this.pet.setSprite(skin.box, skin.hitbox);
       this.pet.setLines(skin.lines);
+      this.pet.setActions(skin.actions);
     } else this.start();
   }
 
@@ -133,6 +144,7 @@ export class Stage {
     pet.setScale(s.scale);
     pet.setRoam(s.roam);
     pet.setSpeech(s.speech);
+    pet.setTricks(s.tricks);
     pet.setInteractive(!s.clickThrough);
     if (this.pressed && !pet.pressed) this.pressed = null;
   }
@@ -214,7 +226,9 @@ export class Stage {
       config: { scale: s.scale, roam: s.roam, sprite: skin.box, hitbox: skin.hitbox },
     });
     this.pet.setSpeech(s.speech);
+    this.pet.setTricks(s.tricks);
     this.pet.setLines(skin.lines);
+    this.pet.setActions(skin.actions);
     this.pet.setInteractive(!s.clickThrough);
   }
 

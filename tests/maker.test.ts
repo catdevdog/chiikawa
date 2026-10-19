@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assembleSkin, buildSkin, matchSizes, type ItemInput } from '../src/maker/build';
+import { assembleSkin, buildSkin, matchSizes, POSE_NAMES, TRICK_POSES, trickActions, type ItemInput } from '../src/maker/build';
 import {
   alphaBounds,
   buildSheet,
@@ -343,6 +343,79 @@ describe('assembleSkin', () => {
     const built = buildSkin([item({ pose: 'idle', frames: [idle] }), item({ pose: 'happy', frames: frames.slice(0, 3), durations: [50, 100, 200] })]);
     const { manifest } = assembleSkin(built, { name: 'T', facing: 'right' });
     expect((manifest.poses.happy as { durations: number[] }).durations).toEqual([50, 100, 200]);
+  });
+});
+
+describe('tricks', () => {
+  const idle = block(100, 100, 20, 10, 60, 80);
+  const wide = block(140, 100, 10, 10, 120, 80);
+  const loop = (n: number) => Array.from({ length: n }, (_, i) => block(100, 100, 20, 10 + i, 60, 80));
+
+  it('are poses of their own, after the poses of the states, on the same canvas', () => {
+    const built = buildSkin([
+      item({ pose: 'trick2', frames: [wide] }),
+      item({ pose: 'idle', frames: [idle] }),
+      item({ pose: 'trick1', frames: [idle] }),
+      item({ pose: 'happy', frames: [idle] }),
+    ]);
+    expect(built.poses.map((p) => p.pose)).toEqual(['idle', 'happy', 'trick1', 'trick2']);
+    for (const p of built.poses) for (const f of p.frames) expect([f.width, f.height]).toEqual([built.width, built.height]);
+  });
+
+  it('count once per name like any other pose, and a trick alone does not make a skin', () => {
+    const built = buildSkin([item({ pose: 'idle', frames: [idle] }), item({ pose: 'trick1', frames: [idle] }), item({ pose: 'trick1', frames: [wide] })]);
+    expect(built.poses.filter((p) => p.pose === 'trick1')).toHaveLength(1);
+    expect(() => buildSkin([item({ pose: 'trick1', frames: [idle] })])).toThrow(/idle/);
+  });
+
+  it('are listed with the other pose names', () => {
+    expect(POSE_NAMES).toContain('idle');
+    for (const t of TRICK_POSES) expect(POSE_NAMES).toContain(t);
+    expect(new Set(POSE_NAMES).size).toBe(POSE_NAMES.length);
+  });
+
+  it('become actions in the manifest: a still picture hops, a moving one is left to move', () => {
+    const built = buildSkin([
+      item({ pose: 'idle', frames: [idle] }),
+      item({ pose: 'trick1', frames: [idle] }),
+      item({ pose: 'trick2', frames: loop(4), durations: [100, 100, 100, 100], motionOff: true }),
+      item({ pose: 'sleep', frames: loop(3), durations: [100, 100, 100], motionOff: true }),
+    ]);
+    const { manifest, images } = assembleSkin(built, { name: 'T', facing: 'left' });
+    expect(manifest.actions).toEqual({
+      trick1: { pose: 'trick1', ms: 2600, motion: 'bounce' },
+      trick2: { pose: 'trick2', ms: 2600, motion: 'off' },
+    });
+    expect(images.map((i) => i.name).sort()).toEqual(['idle.png', 'sleep.png', 'trick1.png', 'trick2.png']);
+    // only the poses of the states have a say in `motion`
+    expect(manifest.motion).toEqual({ sleep: 'off' });
+    const parsed = parseManifest(JSON.parse(JSON.stringify(manifest)), 't');
+    expect(Object.keys(parsed.actions!)).toEqual(['trick1', 'trick2']);
+    expect(parsed.actions!.trick2!.motion).toBe('off');
+  });
+
+  it('have no actions entry when there is no trick', () => {
+    const built = buildSkin([item({ pose: 'idle', frames: [idle] })]);
+    expect(assembleSkin(built, { name: 'T', facing: 'left' }).manifest.actions).toBeUndefined();
+  });
+
+  it('last a couple of rounds of the picture, but not for ever', () => {
+    const built = (n: number, ms: number) =>
+      buildSkin([item({ pose: 'idle', frames: [idle] }), item({ pose: 'trick1', frames: loop(n), durations: Array<number>(n).fill(ms), motionOff: true })]);
+    expect(trickActions(built(4, 1000)).trick1!.ms).toBe(4000);
+    expect(trickActions(built(8, 2000)).trick1!.ms).toBe(6000);
+    expect(trickActions(built(2, 50)).trick1!.ms).toBe(2600);
+  });
+
+  it('are accepted when the skin is saved', () => {
+    const built = buildSkin([item({ pose: 'idle', frames: [idle] }), item({ pose: 'trick1', frames: [wide] })]);
+    const { manifest, images } = assembleSkin(built, { name: 'T', facing: 'left' });
+    const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1]);
+    const result = validateSkinPayload({
+      id: 'with-tricks',
+      files: [{ name: 'manifest.json', data: new TextEncoder().encode(JSON.stringify(manifest)) }, ...images.map((i) => ({ name: i.name, data: bytes }))],
+    });
+    expect(result.ok).toBe(true);
   });
 });
 

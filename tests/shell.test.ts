@@ -49,8 +49,8 @@ describe('sanitizeSettings', () => {
   });
 
   it('keeps valid values and clamps the scale', () => {
-    const s = sanitizeSettings({ mode: 'attach', roam: 'floor', skin: 'my-skin', scale: 99, clickThrough: true, autoStart: true, autoUpdate: false, monitor: '2528732444', speech: 'reactions' });
-    expect(s).toEqual({ mode: 'attach', roam: 'floor', skin: 'my-skin', scale: 4, clickThrough: true, autoStart: true, autoUpdate: false, monitor: '2528732444', speech: 'reactions' });
+    const s = sanitizeSettings({ mode: 'attach', roam: 'floor', skin: 'my-skin', scale: 99, clickThrough: true, autoStart: true, autoUpdate: false, monitor: '2528732444', speech: 'reactions', tricks: false });
+    expect(s).toEqual({ mode: 'attach', roam: 'floor', skin: 'my-skin', scale: 4, clickThrough: true, autoStart: true, autoUpdate: false, monitor: '2528732444', speech: 'reactions', tricks: false });
     expect(sanitizeSettings({ scale: 0.01 }).scale).toBe(0.25);
   });
 
@@ -60,6 +60,12 @@ describe('sanitizeSettings', () => {
     expect(sanitizeSettings({ autoUpdate: true }).autoUpdate).toBe(true);
     // anything else is not a choice; the default (on) applies
     for (const autoUpdate of ['no', 0, null, [], {}]) expect(sanitizeSettings({ autoUpdate }).autoUpdate).toBe(true);
+  });
+
+  it('does tricks on its own unless that was switched off', () => {
+    expect(sanitizeSettings({}).tricks).toBe(true);
+    expect(sanitizeSettings({ tricks: false }).tricks).toBe(false);
+    for (const tricks of ['no', 0, null, [], {}]) expect(sanitizeSettings({ tricks }).tricks).toBe(true);
   });
 
   it('accepts the three speech levels and nothing else', () => {
@@ -79,7 +85,7 @@ describe('what an overlay may report', () => {
   const report = { box: { w: 128, h: 140, anchorX: 0.5, anchorY: 0.94 }, hitbox: { x: 0.18, y: 0.22, w: 0.64, h: 0.72 } };
 
   it('accepts a skin report and keeps its numbers', () => {
-    expect(parseSkinReport(report)).toEqual({ ...report, lines: {} });
+    expect(parseSkinReport(report)).toEqual({ ...report, lines: {}, actions: {} });
   });
 
   it('pulls numbers that are out of range back into it', () => {

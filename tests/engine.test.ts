@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { parseActions } from '../src/engine/actions';
 import { parseLines } from '../src/engine/speech';
 import { inEllipse, mulberry32, Pet, type Mode, type PetOptions, type PetState, type Rect, type Vec2 } from '../src/engine';
 
@@ -1205,5 +1206,331 @@ describe('noticing the computer', () => {
     pet.update(16);
     expect(words(pet)).toHaveLength(0);
     expect(pet.view.state).toBe('happy');
+  });
+});
+
+describe('acting', () => {
+  const ACTIONS = parseActions({
+    camera: { pose: 'camera', ms: 3000, motion: 'still', say: ['SNAP!'] },
+    dance: { pose: 'dance', ms: 2000, motion: 'bounce', say: ['LA'] },
+  });
+  const words = (pet: Pet): string[] => pet.view.particles.filter((p) => p.kind === 'text').map((p) => p.text!);
+  const actor = (opts: Partial<PetOptions> = {}, actions = ACTIONS) => {
+    const pet = make({ mode: 'wander', config: { sleepAfterMs: 1e9 }, ...opts });
+    pet.setActions(actions);
+    pet.update(16);
+    return pet;
+  };
+  /** runs until the pet stops acting (or `max` ms are up); returns how long it took */
+  function untilOver(pet: Pet, max = 30_000): number {
+    let t = 0;
+    while (pet.view.state === 'act' && t < max) {
+      pet.update(16);
+      t += 16;
+    }
+    return t;
+  }
+
+  it('does nothing about actions the skin does not have, and the pet behaves exactly as before', () => {
+    const plain = make({ mode: 'wander' });
+    const empty = make({ mode: 'wander' });
+    empty.setActions({});
+    const trail = (pet: Pet) => {
+      const out: number[] = [];
+      run(pet, 30_000, (p) => out.push(Math.round(p.view.x)));
+      return out;
+    };
+    expect(trail(empty)).toEqual(trail(plain));
+    expect(plain.hasActions).toBe(false);
+  });
+
+  it('now and then does one of its actions on its own, showing the picture of the action only for as long as it lasts', () => {
+    const pet = actor({ chatty: true });
+    const seen = new Set<string>();
+    run(pet, 180_000, (p) => {
+      const v = p.view;
+      expect(v.action !== null, `${v.state} / ${v.action}`).toBe(v.state === 'act');
+      if (v.action) seen.add(v.action);
+    });
+    expect([...seen].sort()).toEqual(['camera', 'dance']);
+  });
+
+  it('does them less often when it is not in a chatty mood', () => {
+    const count = (chatty: boolean): number => {
+      const pet = actor({ chatty, rng: mulberry32(11) });
+      let starts = 0;
+      let was = false;
+      run(pet, 600_000, (p) => {
+        const now = p.view.state === 'act';
+        if (now && !was) starts++;
+        was = now;
+      });
+      return starts;
+    };
+    const normal = count(false);
+    expect(normal).toBeGreaterThan(3);
+    expect(normal).toBeLessThan(count(true));
+  });
+
+  it('does none on its own when that is switched off, but still does them when asked or for a situation', () => {
+    const pet = actor({ chatty: true });
+    pet.setTricks(false);
+    run(pet, 120_000, (p) => expect(p.view.state).not.toBe('act'));
+    expect(pet.perform('dance')).toBe(true);
+    pet.update(16);
+    expect(pet.view.state).toBe('act');
+    untilOver(pet);
+    pet.setActions(parseActions({ cheer: { on: ['welcome'] } }));
+    pet.notice('welcome');
+    pet.update(16);
+    expect(pet.view.action).toBe('cheer');
+    pet.setTricks(true);
+  });
+
+  it('lasts as long as the action says', () => {
+    const pet = actor();
+    expect(pet.perform('camera')).toBe(true);
+    pet.update(16);
+    expect(pet.view.state).toBe('act');
+    expect(pet.view.action).toBe('camera');
+    const took = untilOver(pet);
+    expect(took).toBeGreaterThanOrEqual(2900);
+    expect(took).toBeLessThan(3200);
+    expect(pet.view.action).toBeNull();
+  });
+
+  it('is asked for by name, or for any, and says whether it had one to do', () => {
+    const pet = actor();
+    expect(pet.hasActions).toBe(true);
+    expect(pet.perform('dance')).toBe(true);
+    pet.update(16);
+    expect(pet.view.action).toBe('dance');
+    expect(pet.perform('nope')).toBe(false);
+    expect(pet.perform()).toBe(true);
+    expect(actor({}, {}).perform()).toBe(false);
+  });
+
+  it('is not done to a pet that is in someone\'s hand or in the air', () => {
+    const pet = actor();
+    const c = bodyCenter(pet);
+    pet.pointerMove(c);
+    pet.pointerDown(c);
+    pet.pointerMove({ x: c.x + 40, y: c.y - 60 });
+    pet.update(16);
+    expect(pet.view.state).toBe('held');
+    expect(pet.perform()).toBe(false);
+    pet.pointerUp({ x: c.x + 40, y: c.y - 60 });
+    pet.update(16);
+    expect(pet.view.state).toBe('fall');
+    expect(pet.perform()).toBe(false);
+  });
+
+  it('wakes a sleeping pet for it', () => {
+    const pet = make({ mode: 'wander', config: { sleepAfterMs: 1000 } });
+    pet.setActions(ACTIONS);
+    pet.setCursor({ x: 100, y: 100 });
+    run(pet, 20_000);
+    expect(pet.view.state).toBe('sleep');
+    expect(pet.perform('dance')).toBe(true);
+    pet.update(16);
+    expect(pet.view.state).toBe('act');
+  });
+
+  it('says its own words as it starts', () => {
+    const pet = actor();
+    pet.perform('camera');
+    pet.update(16);
+    expect(words(pet)).toContain('SNAP!');
+    const quiet = actor();
+    quiet.setSpeech('off');
+    quiet.perform('camera');
+    quiet.update(16);
+    expect(words(quiet)).toEqual([]);
+  });
+
+  it('never does the same one twice in a row', () => {
+    const pet = actor();
+    const order: (string | null)[] = [];
+    for (let i = 0; i < 8; i++) {
+      pet.perform();
+      pet.update(16);
+      order.push(pet.view.action);
+      untilOver(pet);
+    }
+    for (let i = 1; i < order.length; i++) expect(order[i]).not.toBe(order[i - 1]);
+  });
+
+  it('prefers the ones with more weight', () => {
+    const pet = actor({}, parseActions({ often: { weight: 8 }, rare: { weight: 1 }, seldom: { weight: 1 } }));
+    const count: Record<string, number> = {};
+    for (let i = 0; i < 300; i++) {
+      pet.perform();
+      pet.update(16);
+      count[pet.view.action!] = (count[pet.view.action!] ?? 0) + 1;
+      untilOver(pet);
+    }
+    expect(count.often).toBeGreaterThan(count.rare! * 1.4);
+    expect(count.often).toBeGreaterThan(count.seldom! * 1.4);
+  });
+
+  it('is done instead of the plain reaction for the situations it is made for, and then the situation speaks', () => {
+    const made = parseActions({ cheer: { pose: 'cheer', on: ['welcome', 'plug'], say: ['OWN WORDS'] }, other: { pose: 'other', on: ['lowBattery'] } });
+    const pet = actor({}, made);
+    pet.setLines(parseLines({ welcome: ['BACK'], unplug: ['OUT'] }));
+    pet.notice('welcome');
+    pet.update(16);
+    expect(pet.view.state).toBe('act');
+    expect(pet.view.action).toBe('cheer');
+    expect(words(pet)).toEqual(['BACK']);
+    untilOver(pet);
+    pet.notice('unplug');
+    pet.update(16);
+    expect(pet.view.state).toBe('surprised');
+    expect(words(pet)).toContain('OUT');
+  });
+
+  it('is done when it gets to the user who called, if it has one for that', () => {
+    const pet = actor({}, parseActions({ greet: { on: ['call'] } }));
+    pet.setLines(parseLines({ call: ['HERE'] }));
+    pet.setCursor({ x: 1100, y: 600 });
+    pet.call();
+    const seen = new Set<string>();
+    run(pet, 6000, (p) => seen.add(p.view.state));
+    expect(seen.has('run')).toBe(true);
+    expect(seen.has('act')).toBe(true);
+    expect(seen.has('happy')).toBe(false);
+  });
+
+  it('gives it up when the mouse calls the pet away in follow mode', () => {
+    const pet = actor({ mode: 'follow' });
+    pet.setCursor({ x: 640, y: 560 });
+    run(pet, 500);
+    pet.perform('camera');
+    pet.update(16);
+    expect(pet.view.state).toBe('act');
+    pet.setCursor({ x: 1200, y: 100 });
+    run(pet, 200);
+    expect(pet.view.state).not.toBe('act');
+  });
+
+  it('does one now and then while it sits beside a mouse that does not move, in follow mode', () => {
+    const pet = actor({ mode: 'follow', chatty: true });
+    pet.setCursor({ x: 640, y: 560 });
+    const seen = new Set<string>();
+    run(pet, 120_000, (p) => {
+      pet.setCursor({ x: 640, y: 560 });
+      if (p.view.action) seen.add(p.view.action);
+    });
+    expect(seen.size).toBeGreaterThan(0);
+    // and none when that is switched off
+    const quiet = actor({ mode: 'follow', chatty: true });
+    quiet.setTricks(false);
+    run(quiet, 120_000, (p) => {
+      quiet.setCursor({ x: 640, y: 560 });
+      expect(p.view.state).not.toBe('act');
+    });
+  });
+
+  it('finishes an action that a situation started before it goes on to the user who called', () => {
+    const pet = actor({}, parseActions({ cheer: { ms: 2000, on: ['welcome'] } }));
+    pet.setCursor({ x: 1200, y: 600 });
+    pet.call();
+    run(pet, 500);
+    expect(pet.view.state).toBe('run');
+    pet.notice('welcome');
+    pet.update(16);
+    expect(pet.view.state).toBe('act');
+    run(pet, 1500, (p) => expect(p.view.state).toBe('act'));
+    run(pet, 700);
+    const seen = new Set<string>();
+    run(pet, 4000, (p) => seen.add(p.view.state));
+    expect(seen.has('run')).toBe(true);
+  });
+
+  it('keeps on with it while the mouse stays near, however long the show is', () => {
+    const pet = actor({ mode: 'follow' });
+    pet.setCursor({ x: 640, y: 560 });
+    run(pet, 500);
+    pet.perform('camera');
+    run(pet, 1500, (p) => expect(p.view.state).toBe('act'));
+  });
+
+  it('stops for a click, which startles the pet as usual', () => {
+    const pet = actor();
+    pet.perform('camera');
+    pet.update(16);
+    click(pet, bodyCenter(pet));
+    pet.update(16);
+    expect(pet.view.state).toBe('surprised');
+    expect(pet.view.action).toBeNull();
+  });
+
+  it('stops when the pet is picked up', () => {
+    const pet = actor();
+    pet.perform('dance');
+    pet.update(16);
+    const c = bodyCenter(pet);
+    pet.pointerMove(c);
+    pet.pointerDown(c);
+    pet.pointerMove({ x: c.x + 30, y: c.y - 50 });
+    pet.update(16);
+    expect(pet.view.state).toBe('held');
+    expect(pet.view.action).toBeNull();
+  });
+
+  it('stops when the skin changes under it', () => {
+    const pet = actor();
+    pet.perform('camera');
+    pet.update(16);
+    pet.setActions(parseActions({ dance: {} }));
+    pet.update(16);
+    expect(pet.view.state).not.toBe('act');
+    pet.perform('dance');
+    pet.update(16);
+    pet.setActions(null);
+    pet.update(16);
+    expect(pet.view.state).not.toBe('act');
+    expect(pet.hasActions).toBe(false);
+  });
+
+  it('moves the picture as the action asks', () => {
+    const motion = (m: 'bounce' | 'sway' | 'still' | 'off') => {
+      const pet = actor({}, parseActions({ a: { motion: m, ms: 8000 } }));
+      pet.perform('a');
+      let lift = 0;
+      let rot = 0;
+      let squash = 0;
+      run(pet, 3000, (p) => {
+        lift = Math.max(lift, p.view.lift);
+        rot = Math.max(rot, Math.abs(p.view.rot));
+        squash = Math.max(squash, Math.abs(p.view.sy - 1), Math.abs(p.view.sx - 1));
+      });
+      return { lift, rot, squash };
+    };
+    expect(motion('bounce').lift).toBeGreaterThan(3);
+    expect(motion('sway').rot).toBeGreaterThan(0.03);
+    expect(motion('sway').lift).toBe(0);
+    expect(motion('still')).toMatchObject({ lift: 0, rot: 0 });
+    expect(motion('still').squash).toBeGreaterThan(0);
+    expect(motion('off')).toEqual({ lift: 0, rot: 0, squash: 0 });
+  });
+
+  it('keeps a pet that acts on the screen, whatever else goes on', () => {
+    const pet = new Pet({ world: { width: 1500, height: 800 }, rng: mulberry32(21), mode: 'auto', chatty: true });
+    pet.setActions(ACTIONS);
+    const rnd = mulberry32(8);
+    for (let i = 0; i < 500; i++) {
+      pet.setCursor({ x: rnd() * 1700 - 100, y: rnd() * 900 - 50 });
+      const r = rnd();
+      if (r < 0.1) pet.perform();
+      else if (r < 0.15) pet.call();
+      else if (r < 0.2) pet.notice('welcome');
+      run(pet, 100 + rnd() * 500);
+      const v = pet.view;
+      expect(Number.isFinite(v.x) && Number.isFinite(v.y)).toBe(true);
+      expect(v.hitbox.x).toBeGreaterThanOrEqual(-1e-6);
+      expect(v.hitbox.x + v.hitbox.w).toBeLessThanOrEqual(1500 + 1e-6);
+      expect(v.hitbox.y + v.hitbox.h).toBeLessThanOrEqual(800 + 1e-6);
+    }
   });
 });

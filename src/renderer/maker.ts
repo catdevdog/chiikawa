@@ -1,4 +1,5 @@
-import { Pet, PET_STATES, type Mode, type PetState } from '../engine';
+import { Pet, PET_STATES, type Mode } from '../engine';
+import { parseActions } from '../engine/actions';
 import {
   assembleSkin,
   buildSkin,
@@ -6,6 +7,8 @@ import {
   matchSizes,
   prepareItem,
   skinGeometry,
+  TRICK_POSES,
+  trickActions,
   type BuiltSkin,
   type ItemInput,
   type Prepared,
@@ -30,7 +33,7 @@ import { decodeFile, pickMakerHost, rasterToBitmap, rasterToPng, toImageData } f
 import { resolvePose } from './poses';
 import { DEFAULT_TEXT_COLOR, Sprite, type Skin } from './skin';
 
-const POSE_LABELS: Record<PetState, string> = {
+const POSE_LABELS: Record<string, string> = {
   idle: '기본 (idle) · 필수',
   walk: '걷기',
   run: '달리기',
@@ -41,6 +44,10 @@ const POSE_LABELS: Record<PetState, string> = {
   land: '착지',
   surprised: '놀람',
   happy: '기쁨',
+  trick1: '재롱 1',
+  trick2: '재롱 2',
+  trick3: '재롱 3',
+  trick4: '재롱 4',
 };
 
 /** longest side used for the live pet preview and thumbnails; the saved skin is built from the full frames */
@@ -58,7 +65,7 @@ interface Item {
   /** frames reduced to PREVIEW_SIDE, for responsive previews */
   small: Raster[];
   smallFactor: number;
-  pose: PetState | '';
+  pose: string;
   /** the user picked this pose (or "unused") by hand, so guessing must leave it alone */
   userSet: boolean;
   bg: { mode: BgMode; key: RGB; tolerance: number; contiguous: boolean; erode: number; feather: number };
@@ -157,7 +164,7 @@ function bgOptions(it: Item, factor: number): BgOptions | null {
 }
 
 const toInput = (it: Item, full: boolean): ItemInput => ({
-  pose: it.pose as PetState,
+  pose: it.pose,
   frames: full ? it.frames : it.small,
   durations: it.durations,
   bg: bgOptions(it, full ? 1 : it.smallFactor),
@@ -265,11 +272,17 @@ function renderItem(it: Item): HTMLLIElement {
   const poseSelect = document.createElement('select');
   poseSelect.setAttribute('aria-label', `${it.name} 포즈`);
   poseSelect.append(new Option('사용 안 함', ''));
-  for (const p of PET_STATES) poseSelect.append(new Option(POSE_LABELS[p], p));
+  const states = document.createElement('optgroup');
+  states.label = '동작';
+  for (const p of PET_STATES) states.append(new Option(POSE_LABELS[p], p));
+  const tricks = document.createElement('optgroup');
+  tricks.label = '특별 행동 (가끔 하는 재롱)';
+  for (const p of TRICK_POSES) tricks.append(new Option(POSE_LABELS[p], p));
+  poseSelect.append(states, tricks);
   poseSelect.value = it.pose;
   poseSelect.addEventListener('click', (e) => e.stopPropagation());
   poseSelect.addEventListener('change', () => {
-    it.pose = poseSelect.value as PetState | '';
+    it.pose = poseSelect.value;
     it.userSet = true;
     renderList();
     schedulePreview();
@@ -545,6 +558,8 @@ const sctx = stage.getContext('2d')!;
 sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
 const pet = new Pet({ world: STAGE, mode: 'wander' });
+const trickBtn = $<HTMLButtonElement>('trick');
+trickBtn.addEventListener('click', () => pet.perform());
 let previewSkin: Skin | null = null;
 let disposeSkin: (() => void) | null = null;
 let previewToken = 0;
@@ -569,7 +584,7 @@ async function toSkin(built: BuiltSkin): Promise<{ skin: Skin; dispose: () => vo
     sprites.set(p.pose, new Sprite(frames, frames.length === 1 ? [Infinity] : p.durations));
   }
   const available = new Set<string>(sprites.keys());
-  const still = new Set(built.poses.filter((p) => p.motionOff && p.frames.length > 1).map((p) => p.pose));
+  const still = new Set<string>(built.poses.filter((p) => p.motionOff && p.frames.length > 1).map((p) => p.pose));
   const g = skinGeometry(built);
   const skin: Skin = {
     id: 'preview',
@@ -577,9 +592,10 @@ async function toSkin(built: BuiltSkin): Promise<{ skin: Skin; dispose: () => vo
     box: { w: g.size.w, h: g.size.h, anchorX: g.anchor.x, anchorY: g.anchor.y },
     hitbox: g.hitbox,
     artFacing: $<HTMLSelectElement>('facing').value === 'left' ? -1 : 1,
-    spriteFor: (state) => sprites.get(resolvePose(state, available))!,
+    spriteFor: (state, action) => (action ? sprites.get(action) : undefined) ?? sprites.get(resolvePose(state, available))!,
     motionOff: (state) => still.has(state),
     lines: {},
+    actions: parseActions(trickActions(built), new Map(built.poses.map((p) => [p.pose, p.frames.length > 1]))),
     textColor: DEFAULT_TEXT_COLOR,
   };
   return { skin, dispose: () => bitmaps.forEach((b) => b.close()) };
@@ -596,6 +612,8 @@ async function rebuildPreview(): Promise<void> {
   }
   if (!prepared.some((p) => p.item.pose === 'idle')) {
     previewSkin = null;
+    pet.setActions(null);
+    trickBtn.hidden = true;
     note.textContent = items.length ? '기본(idle) 포즈를 지정하면 미리보기가 나와요' : '이미지를 추가하면 미리보기가 나와요';
     note.hidden = false;
     return;
@@ -607,6 +625,8 @@ async function rebuildPreview(): Promise<void> {
     disposeSkin = dispose;
     previewSkin = skin;
     pet.setSprite(skin.box, skin.hitbox);
+    pet.setActions(skin.actions);
+    trickBtn.hidden = !pet.hasActions;
     note.hidden = true;
   } catch (err) {
     previewSkin = null;
@@ -712,7 +732,7 @@ async function save(): Promise<void> {
     const used = items.filter((i) => i.pose);
     if (!used.some((i) => i.pose === 'idle')) throw new Error('기본(idle) 포즈로 쓸 이미지를 하나 정해 주세요.');
     const dup = used.find(isDup);
-    if (dup) throw new Error(`"${POSE_LABELS[dup.pose as PetState]}" 포즈가 두 번 지정됐어요.`);
+    if (dup) throw new Error(`"${POSE_LABELS[dup.pose]}" 포즈가 두 번 지정됐어요.`);
     if ((await host.existing()).includes(id) && !window.confirm(`"${id}" 스킨이 이미 있어요. 덮어쓸까요?`)) return;
 
     saveBtn.disabled = true;

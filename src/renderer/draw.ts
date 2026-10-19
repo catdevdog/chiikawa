@@ -39,7 +39,7 @@ function drawShadow(ctx: CanvasRenderingContext2D, v: PetView, skin: Skin): void
 }
 
 function drawPet(ctx: CanvasRenderingContext2D, v: PetView, skin: Skin): void {
-  const frame = skin.spriteFor(v.state).frameAt(v.t * 1000);
+  const frame = skin.spriteFor(v.state, v.action).frameAt(v.t * 1000);
   const { w: bw, h: bh, anchorX, anchorY } = skin.box;
   // artwork that animates itself skips the engine's hop and squash; a hanging pet still swings
   const own = skin.motionOff(v.state);

@@ -1,4 +1,5 @@
-import { PET_STATES, type PetState, type Rect } from '../engine/types';
+import { ACTION_MS } from '../engine/actions';
+import { PET_STATES, type ActionMotion, type PoseState, type Rect } from '../engine/types';
 import type { PoseSource, SkinManifest } from '../shared/manifest';
 import { animate, type AnimSpec } from './animate';
 import {
@@ -15,9 +16,18 @@ import {
   type Raster,
 } from './process';
 
+/**
+ * Pictures for the pet's tricks: a skin made here may have up to this many, each saved as a pose of its own and
+ * listed as an action in the manifest.
+ */
+export const TRICK_POSES = ['trick1', 'trick2', 'trick3', 'trick4'] as const;
+
+/** Every pose name the maker knows: the states of the pet and the tricks. */
+export const POSE_NAMES: readonly string[] = [...PET_STATES, ...TRICK_POSES];
+
 /** One imported image (or animation) and how it should be used. */
 export interface ItemInput {
-  pose: PetState;
+  pose: string;
   frames: Raster[];
   /** ms per frame */
   durations: number[];
@@ -34,7 +44,7 @@ export interface ItemInput {
 }
 
 export interface BuiltPose {
-  pose: PetState;
+  pose: string;
   frames: Raster[];
   durations: number[];
   motionOff: boolean;
@@ -111,8 +121,8 @@ export function matchSizes(canvases: { w: number; h: number }[]): number[] {
 }
 
 /** The first item of each pose wins. */
-const firstPerPose = <T extends { pose: PetState }>(list: T[]): T[] => {
-  const seen = new Set<PetState>();
+const firstPerPose = <T extends { pose: string }>(list: T[]): T[] => {
+  const seen = new Set<string>();
   return list.filter((it) => !seen.has(it.pose) && !!seen.add(it.pose));
 };
 
@@ -150,7 +160,7 @@ export function layoutSkin(all: Prepared[], opts: BuildOptions = {}): BuiltSkin 
   const width = Math.max(...scaled.map((p) => p.w));
   const height = Math.max(...scaled.map((p) => p.h)) + bottomPad;
 
-  const poses: BuiltPose[] = PET_STATES.flatMap((state) => {
+  const poses: BuiltPose[] = POSE_NAMES.flatMap((state) => {
     const p = scaled.find((s) => s.item.pose === state);
     if (!p) return [];
     return [
@@ -185,8 +195,15 @@ export interface SkinImage {
   raster: Raster;
 }
 
+/** What the maker writes for each trick: a manifest `actions` entry, left to its defaults where it can be. */
+export interface TrickAction {
+  pose: string;
+  ms: number;
+  motion: ActionMotion;
+}
+
 export interface SkinAssets {
-  manifest: SkinManifest;
+  manifest: Omit<SkinManifest, 'actions'> & { actions?: Record<string, TrickAction> };
   images: SkinImage[];
 }
 
@@ -209,11 +226,28 @@ export function skinGeometry(
   };
 }
 
+/**
+ * The tricks of a built skin as actions: a picture that moves is shown for a couple of rounds of it and left to move
+ * by itself; a still picture hops for a moment.
+ */
+export function trickActions(built: BuiltSkin): Record<string, TrickAction> {
+  const out: Record<string, TrickAction> = {};
+  for (const p of built.poses) {
+    if (!(TRICK_POSES as readonly string[]).includes(p.pose)) continue;
+    const moving = p.frames.length > 1;
+    const round = p.durations.reduce((sum, d) => sum + d, 0);
+    const ms = moving && round > 0 ? Math.min(6000, Math.max(ACTION_MS.fallback, Math.ceil(2200 / round) * round)) : ACTION_MS.fallback;
+    out[p.pose] = { pose: p.pose, ms: Math.round(ms), motion: moving ? 'off' : 'bounce' };
+  }
+  return out;
+}
+
 /** Turns a built skin into manifest.json content plus the images to write (a PNG per pose, sheets for animations). */
 export function assembleSkin(built: BuiltSkin, meta: SkinMeta): SkinAssets {
   const images: SkinImage[] = [];
   const poses: Record<string, PoseSource> = {};
-  const motion: Partial<Record<PetState, 'off'>> = {};
+  const motion: Partial<Record<PoseState, 'off'>> = {};
+  const isState = (name: string): name is PoseState => (PET_STATES as readonly string[]).includes(name);
 
   for (const p of built.poses) {
     const file = `${p.pose}.png`;
@@ -232,15 +266,17 @@ export function assembleSkin(built: BuiltSkin, meta: SkinMeta): SkinAssets {
       count: p.frames.length,
       durations: same ? p.durations[0]! : p.durations,
     };
-    if (p.motionOff) motion[p.pose] = 'off';
+    if (p.motionOff && isState(p.pose)) motion[p.pose] = 'off';
   }
 
-  const manifest: SkinManifest = {
+  const actions = trickActions(built);
+  const manifest: SkinAssets['manifest'] = {
     name: meta.name,
     ...skinGeometry(built, meta.boxHeight),
     facing: meta.facing,
     poses,
     ...(Object.keys(motion).length ? { motion } : {}),
+    ...(Object.keys(actions).length ? { actions } : {}),
   };
   return { manifest, images };
 }

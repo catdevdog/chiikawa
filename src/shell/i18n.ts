@@ -3,6 +3,7 @@ import type { Lang } from '../shared/skin-name';
 
 const ko = {
   call: '펫 부르기',
+  perform: '재롱 부리기',
   hide: '잠깐 숨기기',
   show: '다시 나타나기',
   mode: '모드',
@@ -30,6 +31,7 @@ const ko = {
   openSkins: '스킨 폴더 열기',
   makeSkin: '스킨 만들기…',
   clickThrough: '방해하지 않기 (클릭 통과)',
+  tricksAuto: '가끔 혼자 재롱 부리기',
   autoStart: 'Windows 시작 시 실행',
   updateAuto: '업데이트 자동 확인',
   updateCheck: '업데이트 확인',
@@ -48,6 +50,7 @@ const ko = {
 
 const en: typeof ko = {
   call: 'Call the pet',
+  perform: 'Do a trick',
   hide: 'Hide for now',
   show: 'Show the pet again',
   mode: 'Mode',
@@ -75,6 +78,7 @@ const en: typeof ko = {
   openSkins: 'Open skins folder',
   makeSkin: 'Make a skin…',
   clickThrough: "Don't get in the way (click-through)",
+  tricksAuto: 'Do tricks now and then',
   autoStart: 'Start with Windows',
   updateAuto: 'Check for updates automatically',
   updateCheck: 'Check for updates',

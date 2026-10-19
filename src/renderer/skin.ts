@@ -1,4 +1,4 @@
-import type { Lines, PetState, Rect } from '../engine/types';
+import type { Actions, Lines, PetState, Rect } from '../engine/types';
 import { isSkinId } from '../shared/ids';
 import { parseManifest, type PoseSource, type SheetPose } from '../shared/manifest';
 import { resolvePose } from './poses';
@@ -37,11 +37,14 @@ export interface Skin {
   hitbox: Rect;
   /** 1 if the artwork faces right, -1 if it faces left */
   artFacing: 1 | -1;
-  spriteFor(state: PetState): Sprite;
+  /** the picture for a state; while it is acting, the pose of the action (`action`) when the skin has it */
+  spriteFor(state: PetState, action?: string | null): Sprite;
   /** true when the artwork animates itself, so the engine's hop and squash should be skipped */
   motionOff(state: PetState): boolean;
   /** what the pet says, by situation */
   lines: Lines;
+  /** what the pet does now and then, with pictures of its own */
+  actions: Actions;
   /** colour of the words above the pet */
   textColor: string;
 }
@@ -77,9 +80,10 @@ export async function loadSkin(id: string, base = '/skins'): Promise<Skin> {
     box: { w: size.w, h: size.h, anchorX: manifest.anchor!.x, anchorY: manifest.anchor!.y },
     hitbox: manifest.hitbox!,
     artFacing: manifest.facing === 'left' ? -1 : 1,
-    spriteFor: (state) => sprites.get(resolvePose(state, available, manifest.states))!,
-    motionOff: (state) => manifest.motion?.[state] === 'off',
+    spriteFor: (state, action) => (action ? sprites.get(action) : undefined) ?? sprites.get(resolvePose(state, available, manifest.states))!,
+    motionOff: (state) => state !== 'act' && manifest.motion?.[state] === 'off',
     lines: manifest.lines ?? {},
+    actions: manifest.actions ?? {},
     textColor: manifest.textColor ?? DEFAULT_TEXT_COLOR,
   };
 }

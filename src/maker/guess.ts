@@ -1,9 +1,9 @@
-import type { PetState } from '../engine/types';
+import type { PoseState } from '../engine/types';
 
 // ASCII keywords must not sit inside a longer word (letters on both sides); `_`, `-`, digits and dots are fine.
 const word = (...words: string[]): string => words.map((w) => `(?<![a-z])${w}(?![a-z])`).join('|');
 
-const RULES: [PetState, RegExp][] = [
+const RULES: [PoseState, RegExp][] = [
   ['sleep', new RegExp(`${word('sleep', 'sleeping', 'zzz', 'nap', 'asleep')}|잠|수면|寝|ねむ|ねる`, 'i')],
   ['surprised', new RegExp(`${word('surprised', 'surprise', 'shock', 'shocked', 'startled', 'wow')}|놀|びっくり|驚`, 'i')],
   ['happy', new RegExp(`${word('happy', 'joy', 'smile', 'glad', 'cheer', 'dance', 'love')}|기쁨|기뻐|좋아|행복|웃|嬉|うれ|やった`, 'i')],
@@ -17,7 +17,7 @@ const RULES: [PetState, RegExp][] = [
 ];
 
 /** Guesses which pose an image is for from its file name, or null when nothing matches. */
-export function guessPose(filename: string): PetState | null {
+export function guessPose(filename: string): PoseState | null {
   const name = filename.replace(/\.[^.]+$/, '');
   for (const [pose, re] of RULES) if (re.test(name)) return pose;
   return null;

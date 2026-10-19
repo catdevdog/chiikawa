@@ -13,6 +13,8 @@ export function mountHarness(opts: {
   settings: Settings;
   skins: SkinInfo[];
   patch(p: Partial<Settings>): void;
+  /** does one of the skin's actions */
+  perform(): void;
 }): { setStatus(text: string): void; sync(s: Settings): void } {
   const panel = el('div', { id: 'harness' });
   const modes = new Map<Mode, HTMLButtonElement>();
@@ -44,8 +46,11 @@ export function mountHarness(opts: {
   const lockLabel = el('label', { textContent: 'click-through' });
   lockLabel.prepend(lock);
 
+  const act = el('button', { textContent: 'act' });
+  act.addEventListener('click', () => opts.perform());
+
   const status = el('span', { id: 'status' });
-  panel.append(scale, scaleLabel, roam, skin, speech, lockLabel, status);
+  panel.append(scale, scaleLabel, roam, skin, speech, lockLabel, act, status);
   document.body.append(panel);
 
   const sync = (s: Settings): void => {
