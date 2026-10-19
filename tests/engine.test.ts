@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { parseLines } from '../src/engine/speech';
 import { inEllipse, mulberry32, Pet, type Mode, type PetOptions, type PetState, type Rect, type Vec2 } from '../src/engine';
 
 const W = 1280;
@@ -591,5 +592,323 @@ describe('several screens', () => {
       if (p.view.x > 1100) crossed = true;
     });
     expect(crossed).toBe(true);
+  });
+});
+
+describe('speech', () => {
+  const lines = parseLines({
+    hover: ['HOVER'],
+    click: ['CLICK-A', 'CLICK-B'],
+    rub: ['RUB'],
+    triple: ['TRIPLE'],
+    pickup: ['PICKUP'],
+    throw: ['THROW'],
+    land: ['LAND'],
+    sleep: ['SLEEP'],
+    wake: ['WAKE'],
+    idle: ['IDLE'],
+    cross: ['CROSS'],
+  });
+  const texts = (pet: Pet) => pet.view.particles.filter((p) => p.kind === 'text');
+  /** the words said last (older ones may still be fading out) */
+  const latest = (pet: Pet) => texts(pet).at(-1)!;
+  /** every kind of words seen while `body` runs */
+  const seenWhile = (pet: Pet, body: (each: () => void) => void): Set<string> => {
+    const seen = new Set<string>();
+    body(() => {
+      for (const t of texts(pet)) seen.add(t.text!);
+    });
+    return seen;
+  };
+  const talker = (opts: Partial<PetOptions> = {}, spoken = lines) => {
+    const pet = make({ mode: 'wander', chatty: true, ...opts });
+    pet.setLines(spoken);
+    return pet;
+  };
+  const SENTENCE = parseLines({ click: ['세 번이나… 놀자는 거야!?'] });
+
+  it('says nothing when the skin has no lines', () => {
+    const pet = make({ mode: 'wander', chatty: true });
+    pet.update(16);
+    click(pet, bodyCenter(pet));
+    run(pet, 2000);
+    expect(texts(pet)).toHaveLength(0);
+  });
+
+  it('answers a click with one of the click lines', () => {
+    const pet = talker();
+    run(pet, 1200);
+    click(pet, bodyCenter(pet));
+    pet.update(16);
+    const t = latest(pet);
+    expect(['CLICK-A', 'CLICK-B']).toContain(t.text);
+    expect(t.style).toBe('float');
+  });
+
+  it('sounds rise from above the head and are gone after a moment', () => {
+    const pet = talker();
+    pet.update(16);
+    pet.say('click');
+    const t = latest(pet);
+    const head = pet.view.hitbox.y;
+    expect(t.y).toBeLessThan(head);
+    const y0 = t.y;
+    run(pet, 600);
+    expect(t.y).toBeLessThan(y0 - 12);
+    run(pet, 1500);
+    expect(texts(pet)).toHaveLength(0);
+  });
+
+  it('a sentence stays above the head for a while, then fades away', () => {
+    const pet = talker({}, SENTENCE);
+    pet.update(16);
+    pet.say('click');
+    const t = latest(pet);
+    expect(t.style).toBe('hold');
+    const y0 = t.y;
+    run(pet, 1000);
+    expect(texts(pet)).toHaveLength(1);
+    expect(Math.abs(t.y - y0)).toBeLessThan(4);
+    expect(t.age).toBeLessThan(t.life);
+    run(pet, 5000);
+    expect(texts(pet)).toHaveLength(0);
+  });
+
+  it('a sentence follows the pet when it walks', () => {
+    const pet = talker({ config: { roam: 'floor' } }, SENTENCE);
+    pet.setMode('follow');
+    pet.setCursor({ x: W - 40, y: H - 40 });
+    pet.update(16);
+    pet.say('click');
+    const t = latest(pet);
+    const x0 = pet.view.x;
+    run(pet, 900);
+    expect(pet.view.x - x0).toBeGreaterThan(30);
+    expect(latest(pet)).toBe(t);
+    // it trails a little behind a pet that is running
+    expect(Math.abs(t.x - pet.view.x)).toBeLessThan(25);
+    expect(t.y).toBeLessThan(pet.view.hitbox.y);
+  });
+
+  it('keeps sentences inside the screen the pet is on', () => {
+    const pet = talker({ world: { width: 420, height: 300 }, config: { roam: 'floor' } }, SENTENCE);
+    pet.setMode('follow');
+    pet.setCursor({ x: 410, y: 290 });
+    run(pet, 6000);
+    pet.say('click');
+    const t = latest(pet);
+    expect(t.x + t.w! / 2).toBeLessThanOrEqual(420);
+    expect(t.x - t.w! / 2).toBeGreaterThanOrEqual(0);
+  });
+
+  it('words are scaled with the pet', () => {
+    const small = talker();
+    const big = talker({ config: { scale: 2 } });
+    small.update(16);
+    big.update(16);
+    small.say('click');
+    big.say('click');
+    expect(latest(big).size!).toBeCloseTo(latest(small).size! * 2);
+  });
+
+  it('only one set of words is up at a time: a new answer cuts the old words off', () => {
+    const pet = talker();
+    pet.update(16);
+    pet.say('click');
+    run(pet, 200);
+    pet.say('pickup');
+    run(pet, 300);
+    expect(texts(pet).map((t) => t.text)).toEqual(['PICKUP']);
+  });
+
+  it('greets shortly after the lines arrive, and again when another skin takes over', () => {
+    const pet = make({ mode: 'wander' });
+    pet.setLines(parseLines({ start: ['HELLO'] }));
+    run(pet, 700);
+    expect(texts(pet)).toHaveLength(0);
+    run(pet, 300);
+    expect(texts(pet).map((t) => t.text)).toEqual(['HELLO']);
+    run(pet, 3000);
+    pet.setLines(parseLines({ start: ['HI AGAIN'] }));
+    run(pet, 1000);
+    expect(texts(pet).map((t) => t.text)).toEqual(['HI AGAIN']);
+  });
+
+  it('does not greet when there is nothing to say', () => {
+    const pet = make({ mode: 'wander' });
+    pet.setLines(parseLines({}));
+    expect(seenWhile(pet, (each) => run(pet, 3000, each)).size).toBe(0);
+  });
+
+  it('is silent when speech is off, and only answers when it is set to reactions', () => {
+    const quiet = talker();
+    quiet.setSpeech('off');
+    quiet.update(16);
+    click(quiet, bodyCenter(quiet));
+    expect(seenWhile(quiet, (each) => run(quiet, 3000, each)).size).toBe(0);
+
+    const reactive = talker({ config: { sleepAfterMs: 1e9 } });
+    reactive.setSpeech('reactions');
+    const seen = seenWhile(reactive, (each) => {
+      run(reactive, 40_000, each);
+      click(reactive, bodyCenter(reactive));
+      run(reactive, 100, each);
+    });
+    expect(seen.has('IDLE')).toBe(false);
+    expect([...seen].some((t) => t.startsWith('CLICK'))).toBe(true);
+  });
+
+  it('a rub is answered, and so are three quick clicks (with hearts)', () => {
+    const rubbed = talker();
+    rubbed.update(16);
+    const c = bodyCenter(rubbed);
+    let x = c.x - 30;
+    let dir = 1;
+    const seen = seenWhile(rubbed, (each) => {
+      for (let i = 0; i < 60; i++) {
+        x += dir * 12;
+        if (x > c.x + 30 || x < c.x - 30) dir = -dir;
+        rubbed.pointerMove({ x, y: c.y });
+        rubbed.update(16);
+        each();
+      }
+    });
+    expect(seen.has('RUB')).toBe(true);
+
+    const pet = talker();
+    pet.update(16);
+    const said = seenWhile(pet, (each) => {
+      for (let i = 0; i < 3; i++) {
+        click(pet, bodyCenter(pet));
+        run(pet, 100, each);
+      }
+    });
+    expect(said.has('TRIPLE')).toBe(true);
+    expect(pet.view.particles.some((p) => p.kind === 'heart')).toBe(true);
+  });
+
+  it('says something when it is picked up, thrown and when it lands from high up', () => {
+    const pet = talker({ config: { roam: 'floor' } });
+    pet.update(16);
+    const from = bodyCenter(pet);
+    const seen = seenWhile(pet, (each) => {
+      pet.pointerMove(from);
+      pet.pointerDown(from);
+      for (let i = 1; i <= 30; i++) {
+        pet.pointerMove({ x: from.x, y: from.y - (i * 400) / 30 });
+        pet.update(16);
+        each();
+      }
+      run(pet, 400, each);
+      pet.pointerUp({ x: from.x, y: from.y - 400 });
+      run(pet, 3000, each);
+    });
+    expect(seen.has('PICKUP')).toBe(true);
+    expect(seen.has('THROW')).toBe(true);
+    expect(seen.has('LAND')).toBe(true);
+  });
+
+  it('a gentle release just above the floor is not a throw', () => {
+    const pet = talker({ config: { roam: 'floor' } });
+    pet.update(16);
+    const from = bodyCenter(pet);
+    const seen = seenWhile(pet, (each) => {
+      pet.pointerMove(from);
+      pet.pointerDown(from);
+      for (let i = 1; i <= 20; i++) {
+        pet.pointerMove({ x: from.x, y: from.y - 8 });
+        pet.update(16);
+        each();
+      }
+      run(pet, 400, each);
+      pet.pointerUp({ x: from.x, y: from.y - 8 });
+      run(pet, 2000, each);
+    });
+    expect(seen.has('THROW')).toBe(false);
+    expect(seen.has('LAND')).toBe(false);
+  });
+
+  it('talks as it falls asleep and as it wakes up', () => {
+    const pet = talker({ config: { sleepAfterMs: 1000 } });
+    pet.setCursor({ x: 10, y: 10 });
+    const seen = seenWhile(pet, (each) => {
+      for (let i = 0; i < 600 && pet.view.state !== 'sleep'; i++) {
+        pet.update(16);
+        each();
+      }
+      expect(pet.view.state).toBe('sleep');
+      run(pet, 1200, each);
+      pet.setCursor({ x: 600, y: 400 });
+      run(pet, 200, each);
+    });
+    expect(seen.has('SLEEP')).toBe(true);
+    expect(seen.has('WAKE')).toBe(true);
+  });
+
+  it('talks to itself now and then when left alone', () => {
+    const pet = talker({ config: { sleepAfterMs: 1e9 } });
+    const seen = seenWhile(pet, (each) => run(pet, 90_000, each));
+    expect(seen.has('IDLE')).toBe(true);
+  });
+
+  it('does not talk to itself while the pointer rests on it', () => {
+    const pet = talker({ config: { sleepAfterMs: 1e9 } });
+    pet.update(16);
+    const c = bodyCenter(pet);
+    const seen = seenWhile(pet, (each) => {
+      for (let i = 0; i < 2500; i++) {
+        pet.pointerMove(c);
+        pet.update(16);
+        each();
+      }
+    });
+    expect(seen.has('IDLE')).toBe(false);
+  });
+
+  it('says something when it goes over to another screen', () => {
+    const screens: Rect[] = [{ x: 0, y: 0, w: 1000, h: 600 }, { x: 1000, y: 0, w: 1000, h: 600 }];
+    const pet = new Pet({ world: { width: 1, height: 1 }, region: screens, rng: mulberry32(7), mode: 'wander', chatty: true });
+    pet.setLines(lines);
+    run(pet, 1500);
+    const from = bodyCenter(pet);
+    const to = { x: 1500, y: 300 };
+    const seen = seenWhile(pet, (each) => {
+      pet.pointerMove(from);
+      pet.pointerDown(from);
+      for (let i = 1; i <= 40; i++) {
+        pet.pointerMove({ x: from.x + ((to.x - from.x) * i) / 40, y: from.y + ((to.y - from.y) * i) / 40 });
+        pet.update(16);
+        each();
+      }
+      pet.pointerUp(to);
+      run(pet, 500, each);
+    });
+    expect(pet.view.x).toBeGreaterThan(1000);
+    expect(seen.has('CROSS')).toBe(true);
+  });
+
+  it('a change of screens is not a trip', () => {
+    const pet = new Pet({ world: { width: 1, height: 1 }, region: [{ x: 0, y: 0, w: 1000, h: 600 }, { x: 1000, y: 0, w: 1000, h: 600 }], rng: mulberry32(7), mode: 'wander', chatty: true });
+    pet.setLines(parseLines({ cross: ['CROSS'] }));
+    run(pet, 500);
+    const seen = seenWhile(pet, (each) => {
+      pet.setRegion([{ x: 0, y: 0, w: 1000, h: 600 }]);
+      run(pet, 500, each);
+      pet.setRegion([{ x: 0, y: 0, w: 1000, h: 600 }, { x: 1000, y: 0, w: 1000, h: 600 }]);
+      run(pet, 500, each);
+    });
+    expect(seen.size).toBe(0);
+  });
+
+  it('a skin\'s words never change how the pet behaves', () => {
+    const quiet = make({ mode: 'wander' });
+    const loud = make({ mode: 'wander' });
+    loud.setLines(parseLines({}));
+    const trail = (pet: Pet) => {
+      const out: number[] = [];
+      run(pet, 20_000, (p) => out.push(Math.round(p.view.x)));
+      return out;
+    };
+    expect(trail(loud)).toEqual(trail(quiet));
   });
 });

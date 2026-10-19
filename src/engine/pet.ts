@@ -1,5 +1,7 @@
 import {
   DEFAULT_CONFIG,
+  type Line,
+  type Lines,
   type Mode,
   type Particle,
   type ParticleKind,
@@ -8,9 +10,12 @@ import {
   type PetView,
   type Rect,
   type Roam,
+  type SayEvent,
+  type SpeechLevel,
   type Vec2,
 } from './types';
 import { Region, type Reach } from './region';
+import { Speaker, textWidth } from './speech';
 import { clamp, dist, inEllipse, mulberry32 } from './vec';
 
 const MAX_DT = 50;
@@ -40,6 +45,8 @@ export interface PetOptions {
   config?: Partial<PetConfig>;
   mode?: Mode;
   rng?: () => number;
+  /** previews and tests: speak in every situation and much more often */
+  chatty?: boolean;
 }
 
 type Holder = 'user' | 'cursor';
@@ -52,6 +59,11 @@ export class Pet {
   private cfg: PetConfig;
   private region: Region;
   private rng: () => number;
+  private speaker: Speaker;
+  /** ms until the pet talks to itself; ms until it greets; which screen the feet are on (-2: not known yet) */
+  private murmurIn = 0;
+  private greetIn: number | null = null;
+  private screen = -2;
 
   private time = 0;
   private state: PetState = 'idle';
@@ -104,6 +116,8 @@ export class Pet {
     this.region = new Region(opts.region ?? [{ x: 0, y: 0, w: opts.world.width, h: opts.world.height }]);
     this.mode = opts.mode ?? 'auto';
     this.rng = opts.rng ?? mulberry32(Date.now());
+    this.speaker = new Speaker(() => this.rng());
+    this.speaker.chatty = !!opts.chatty;
     const home = this.region.rects[0]!;
     this.pos = { x: home.x + home.w / 2, y: home.y + home.h };
     this.prevX = this.pos.x;
@@ -127,6 +141,8 @@ export class Pet {
     this.region = new Region(rects);
     this.pos = this.clampFeet(this.pos);
     if (this.target) this.target = this.clampFeet(this.target);
+    // the screens are numbered anew: not a trip from one to another
+    this.screen = -2;
   }
 
   setScale(scale: number): void {
@@ -149,6 +165,26 @@ export class Pet {
   setInteractive(on: boolean): void {
     this.interactive = on;
     if (!on) this.cancelPointer();
+  }
+
+  /** What the pet says, by situation (the skin's lines). A skin that speaks greets when it takes over. */
+  setLines(lines: Lines | null): void {
+    this.speaker.setLines(lines);
+    if (this.speaker.any) {
+      this.greetIn = 900;
+      this.murmurIn = this.nextMurmur();
+    }
+  }
+
+  setSpeech(level: SpeechLevel): void {
+    this.speaker.setLevel(level);
+  }
+
+  /** Says something for a situation, if the skin has words for it and it is not too soon. */
+  say(event: SayEvent): void {
+    const holding = this.particles.some((p) => p.kind === 'text' && p.style === 'hold' && p.age < p.life - 400);
+    const line = this.speaker.pick(event, this.time, holding);
+    if (line) this.spawnText(line);
   }
 
   setMode(mode: Mode): void {
@@ -244,6 +280,7 @@ export class Pet {
           this.stepBehavior(dt);
       }
       if (this.state !== 'fall') this.pos = this.settleFeet(this.pos);
+      this.stepSpeech(dt);
     }
     this.syncView();
   }
@@ -339,6 +376,7 @@ export class Pet {
         y: floor ? this.pos.y : c.y + uy * stop + (this.pos.y - center.y),
       });
       this.target = null;
+      if (!moving) this.say('follow');
       this.enter(d > start * 2.2 ? 'run' : 'walk');
       this.moveToward(goal, this.state === 'run' ? this.k(this.cfg.runSpeed) : this.k(this.cfg.walkSpeed), dt);
       return;
@@ -407,8 +445,10 @@ export class Pet {
         this.vel.x *= 0.7;
         this.bounces++;
       } else {
+        const airtime = this.stateMs;
         this.vel = { x: 0, y: 0 };
         this.enter('land');
+        if (airtime > 450) this.say('land');
       }
     }
   }
@@ -469,6 +509,7 @@ export class Pet {
     this.sleepCursor = null;
     this.interactionIdleMs = 0;
     this.settle();
+    this.say('wake');
   }
 
   /** Startles when the cursor races toward the pet. Only used while wandering. */
@@ -486,6 +527,7 @@ export class Pet {
     this.target = null;
     this.fleeDir = { x: ax / d, y: ay / d };
     this.enter('surprised', true);
+    this.say('flee');
   }
 
   private pickTarget(): Vec2 {
@@ -533,6 +575,7 @@ export class Pet {
     this.prevX = this.pos.x;
     this.vel = { x: 0, y: 0 };
     this.enter('held', true);
+    if (this.mode === 'attach') this.say('attach');
   }
 
   private react(s: 'surprised' | 'happy'): void {
@@ -546,8 +589,10 @@ export class Pet {
 
   private enter(s: PetState, force = false): void {
     if (this.state !== s || force) {
+      const before = this.state;
       this.state = s;
       this.stateMs = 0;
+      if (before !== s && (s === 'sit' || s === 'sleep')) this.say(s);
       // every walk or run starts at the beginning of its step, so a skin's own walk cycle (which also starts
       // at the beginning of the state) stays in step with the hop
       if (s === 'walk' || s === 'run') this.gait = 0;
@@ -574,10 +619,14 @@ export class Pet {
     this.facing = p.x >= this.pos.x ? 1 : -1;
     if (this.state === 'sleep') {
       this.react('surprised');
-    } else if (this.state === 'walk') {
-      // stop so it can be petted instead of walking out from under the pointer
-      this.target = null;
-      this.enter('idle');
+      this.say('wake');
+    } else {
+      if (this.state === 'walk') {
+        // stop so it can be petted instead of walking out from under the pointer
+        this.target = null;
+        this.enter('idle');
+      }
+      this.say('hover');
     }
   }
 
@@ -605,7 +654,10 @@ export class Pet {
       r.dir = dir;
     }
     r.lastMove = this.time;
-    if (r.reversals >= RUB_REVERSALS && this.state !== 'happy' && this.state !== 'fall') this.react('happy');
+    if (r.reversals >= RUB_REVERSALS && this.state !== 'happy' && this.state !== 'fall') {
+      this.react('happy');
+      this.say('rub');
+    }
   }
 
   private onClick(): void {
@@ -616,8 +668,10 @@ export class Pet {
       this.clicks = [];
       this.react('happy');
       for (let i = 0; i < 4; i++) this.spawn('heart');
+      this.say('triple');
     } else {
       this.react('surprised');
+      this.say('click');
     }
   }
 
@@ -635,6 +689,7 @@ export class Pet {
     this.prevX = this.pos.x;
     this.interactionIdleMs = 0;
     this.enter('held', true);
+    this.say('pickup');
   }
 
   private dragTo(p: Vec2): void {
@@ -664,6 +719,9 @@ export class Pet {
       vy = (vy / m) * max;
     }
     this.startFall(vx * 0.8, vy * 0.8);
+    // let go a hair above the floor is not a throw
+    const high = this.region.floor(this.pos, this.reach()) - this.pos.y;
+    if (high > this.k(40) || Math.hypot(vx, vy) > this.k(300)) this.say('throw');
   }
 
   // --- helpers: cursor, particles, geometry --------------------------------
@@ -695,6 +753,10 @@ export class Pet {
     const s = dt / 1000;
     for (const p of this.particles) {
       p.age += dt;
+      if (p.kind === 'text') {
+        this.stepText(p, dt);
+        continue;
+      }
       p.x += p.vx * s;
       p.y += p.vy * s;
       if (p.kind === 'z') p.vx = Math.sin(p.age / 300) * 14;
@@ -704,7 +766,7 @@ export class Pet {
   }
 
   private spawn(kind: ParticleKind): void {
-    if (this.particles.length >= MAX_PARTICLES) return;
+    if (this.particles.filter((q) => q.kind !== 'text').length >= MAX_PARTICLES) return;
     const { w, h } = this.size();
     const r = this.rng;
     const p: Particle =
@@ -713,6 +775,90 @@ export class Pet {
         : { kind, x: this.pos.x + this.facing * w * 0.22, y: this.pos.y - h * 0.72, vx: 10, vy: -26, age: 0, life: 1800 };
     this.particles.push(p);
     this.view.particles = this.particles;
+  }
+
+  // --- helpers: speech -------------------------------------------------------
+
+  private nextMurmur(): number {
+    return this.speaker.chatty ? 5_000 + this.rng() * 5_000 : 50_000 + this.rng() * 70_000;
+  }
+
+  /** Greeting, trips from one screen to another, and the pet talking to itself when it has been left alone. */
+  private stepSpeech(dt: number): void {
+    if (this.greetIn !== null) {
+      this.greetIn -= dt;
+      if (this.greetIn <= 0) {
+        this.greetIn = null;
+        this.say('start');
+      }
+    }
+    const at = this.region.indexAt(this.pos);
+    if (this.screen === -2) this.screen = at;
+    else if (at >= 0 && at !== this.screen) {
+      const from = this.screen;
+      this.screen = at;
+      if (from >= 0) this.say('cross');
+    }
+    if (this.speaker.any && (this.state === 'idle' || this.state === 'sit') && !this.isHovered() && this.interactionIdleMs > 6000) {
+      this.murmurIn -= dt;
+      if (this.murmurIn <= 0) {
+        this.murmurIn = this.nextMurmur();
+        this.say('idle');
+      }
+    }
+  }
+
+  /** Keeps words of width `w` centred on `x` but inside the screen the pet is on. */
+  private textX(x: number, w: number): number {
+    const r = this.region.rects[Math.max(0, this.region.indexAt(this.pos))]!;
+    const half = w / 2 + 4;
+    return r.w > 2 * half ? clamp(x, r.x + half, r.x + r.w - half) : r.x + r.w / 2;
+  }
+
+  /** Words above the head. Sounds drift up and fade like the z's; sentences stay a while, following the pet. */
+  private spawnText(line: Line): void {
+    const s = this.cfg.scale;
+    const held = line.style === 'hold';
+    const size = (held ? 15 : 17) * s;
+    const w = textWidth(line.text, size);
+    const dy = -(this.reach().top + size * 0.9 + 4 * s);
+    const x = this.textX(this.pos.x, w);
+    const life = held ? clamp(1400 + [...line.text].length * 110, 1800, 4800) : 1500;
+    // words never pile up: whatever is still up fades out now
+    for (const q of this.particles) if (q.kind === 'text') q.age = Math.max(q.age, q.life - 220);
+    this.particles.push({
+      kind: 'text',
+      text: line.text,
+      style: line.style,
+      size,
+      w,
+      x,
+      y: this.pos.y + dy,
+      vx: 0,
+      vy: held ? 0 : -34 * s,
+      age: 0,
+      life,
+      dx: x - this.pos.x,
+      dy,
+    });
+    this.view.particles = this.particles;
+  }
+
+  private stepText(p: Particle, dt: number): void {
+    const s = this.cfg.scale;
+    if (p.style === 'hold') {
+      // eases to the spot above the head, drifting up a little as it fades
+      const rise = clamp(p.age / p.life, 0, 1) ** 3 * 12 * s;
+      const tx = this.textX(this.pos.x + (p.dx ?? 0), p.w ?? 0);
+      const ty = this.pos.y + (p.dy ?? 0) - rise;
+      const k = 1 - Math.exp(-dt / 55);
+      p.x += (tx - p.x) * k;
+      p.y += (ty - p.y) * k;
+    } else {
+      p.vx = Math.sin(p.age / 280 + (p.dx ?? 0)) * 9 * s;
+      p.x += (p.vx * dt) / 1000;
+      p.y += (p.vy * dt) / 1000;
+    }
   }
 
   private k(v: number): number {

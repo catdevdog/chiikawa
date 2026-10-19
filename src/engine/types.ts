@@ -39,7 +39,10 @@ export const PET_STATES: readonly PetState[] = [
   'happy',
 ];
 
-export type ParticleKind = 'heart' | 'z';
+export type ParticleKind = 'heart' | 'z' | 'text';
+
+/** How spoken words are shown: 'float' rises and fades like the z's, 'hold' stays above the head for a moment and then fades. */
+export type SayStyle = 'float' | 'hold';
 
 export interface Particle {
   kind: ParticleKind;
@@ -51,7 +54,65 @@ export interface Particle {
   age: number;
   /** ms until it disappears */
   life: number;
+  /** text only: the words, how they move, the font size and the width they take (px) */
+  text?: string;
+  style?: SayStyle;
+  size?: number;
+  w?: number;
+  /** text only: where held words sit relative to the feet (floating words use dx as a phase) */
+  dx?: number;
+  dy?: number;
 }
+
+/** The situations a pet can say something in. */
+export type SayEvent =
+  | 'start'
+  | 'hover'
+  | 'click'
+  | 'rub'
+  | 'triple'
+  | 'pickup'
+  | 'throw'
+  | 'land'
+  | 'flee'
+  | 'follow'
+  | 'attach'
+  | 'idle'
+  | 'sit'
+  | 'sleep'
+  | 'wake'
+  | 'cross';
+
+export const SAY_EVENTS: readonly SayEvent[] = [
+  'start',
+  'hover',
+  'click',
+  'rub',
+  'triple',
+  'pickup',
+  'throw',
+  'land',
+  'flee',
+  'follow',
+  'attach',
+  'idle',
+  'sit',
+  'sleep',
+  'wake',
+  'cross',
+];
+
+export interface Line {
+  text: string;
+  style: SayStyle;
+}
+
+/** What a skin says, by situation. */
+export type Lines = Partial<Record<SayEvent, Line[]>>;
+
+/** all: reactions and murmurs, reactions: only answers to what happens, off: silent. */
+export type SpeechLevel = 'all' | 'reactions' | 'off';
+export const SPEECH_LEVELS: readonly SpeechLevel[] = ['all', 'reactions', 'off'];
 
 /**
  * Pixel values are for scale 1; the engine multiplies them by `scale`.
