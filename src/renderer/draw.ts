@@ -35,6 +35,12 @@ function drawShadow(ctx: CanvasRenderingContext2D, v: PetView, skin: Skin): void
 function drawPet(ctx: CanvasRenderingContext2D, v: PetView, skin: Skin): void {
   const frame = skin.spriteFor(v.state).frameAt(v.t * 1000);
   const { w: bw, h: bh, anchorX, anchorY } = skin.box;
+  // artwork that animates itself skips the engine's hop and squash; a hanging pet still swings
+  const own = skin.motionOff(v.state);
+  const sx = own ? 1 : v.sx;
+  const sy = own ? 1 : v.sy;
+  const lift = own ? 0 : v.lift;
+  const rot = own && v.pivot !== 'top' ? 0 : v.rot;
   // fit the frame into the sprite box, bottom-centred
   const fit = Math.min(bw / frame.width, bh / frame.height);
   const dw = frame.width * fit;
@@ -45,16 +51,16 @@ function drawPet(ctx: CanvasRenderingContext2D, v: PetView, skin: Skin): void {
   ctx.save();
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
-  ctx.translate(v.x, v.y - v.lift);
-  if (v.rot) {
+  ctx.translate(v.x, v.y - lift);
+  if (rot) {
     // rotation happens in screen space, so mirroring the sprite does not mirror the swing
     const pivotY = v.pivot === 'top' ? -anchorY * bh * v.scale : 0;
     ctx.translate(0, pivotY);
-    ctx.rotate(v.rot);
+    ctx.rotate(rot);
     ctx.translate(0, -pivotY);
   }
   ctx.scale(v.facing * skin.artFacing * v.scale, v.scale);
-  ctx.scale(v.sx, v.sy);
+  ctx.scale(sx, sy);
   ctx.drawImage(frame.image, -anchorX * bw + dx, -anchorY * bh + dy, dw, dh);
   ctx.restore();
 }

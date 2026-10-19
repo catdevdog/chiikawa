@@ -9,6 +9,8 @@ export interface Host {
   onCursor(cb: (p: Vec2) => void): void;
   onSettings(cb: (s: Settings) => void): void;
   onWorld(cb: (w: { width: number; height: number }) => void): void;
+  /** the files of the skin in use were rewritten (the skin maker saved over it) */
+  onReloadSkin(cb: () => void): void;
   reportHitbox(report: HitboxReport): void;
   setDragging(on: boolean): void;
   log(level: 'info' | 'warn' | 'error', message: string): void;
@@ -25,6 +27,7 @@ export function pickHost(): Host {
     onCursor: (cb) => api.onCursor(cb),
     onSettings: (cb) => api.onSettings(cb),
     onWorld: (cb) => api.onWorld(cb),
+    onReloadSkin: (cb) => api.onReloadSkin(cb),
     reportHitbox: (r) => api.reportHitbox(r),
     setDragging: (on) => api.setDragging(on),
     log: (level, message) => api.log(level, message),
@@ -70,6 +73,7 @@ function browserHost(): Host {
     onCursor: (cb) => addEventListener('pointermove', (e) => cb({ x: e.clientX, y: e.clientY })),
     onSettings: (cb) => void listeners.push(cb),
     onWorld: (cb) => addEventListener('resize', () => cb({ width: innerWidth, height: innerHeight })),
+    onReloadSkin: () => {},
     reportHitbox: () => {},
     setDragging: () => {},
     log: (level, message) => console[level](message),

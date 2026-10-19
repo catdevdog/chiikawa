@@ -21,6 +21,7 @@ import { inEllipse } from '../engine/vec';
 import { DEFAULT_SETTINGS, IPC, type HitboxReport, type InitInfo, type Settings } from '../shared/types';
 import { t } from './i18n';
 import { log } from './log';
+import { makerCovers, openMaker, registerMakerIpc } from './maker';
 import { loadSettings, saveSettings } from './settings';
 import { safeJoin } from './safe-path';
 import { ensureUserSkinsDir, listSkins, MIME, resolveSkinFile, userSkinsDir } from './skins';
@@ -29,6 +30,7 @@ const APP_ID = 'io.github.catdevdog.desktop-buddy';
 const ORIGIN = 'buddy://app';
 const QUIT_SHORTCUT = 'CommandOrControl+Alt+Shift+B';
 const QUIT_LABEL = process.platform === 'darwin' ? 'Cmd+Alt+Shift+B' : 'Ctrl+Alt+Shift+B';
+const MAKER_FLAG = '--maker';
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -163,7 +165,7 @@ function startCursorLoop(): void {
       last = { x, y };
       lastSent = now;
     }
-    const over = dragging || (report?.interactive === true && inEllipse({ x, y }, report.rect));
+    const over = dragging || (report?.interactive === true && inEllipse({ x, y }, report.rect) && !makerCovers(p));
     if (over === ignoring) {
       ignoring = !over;
       win.setIgnoreMouseEvents(ignoring, { forward: true });
@@ -263,6 +265,7 @@ async function rebuildMenu(): Promise<void> {
           { label: s.openSkins, click: () => void shell.openPath(userSkinsDir()) },
         ],
       },
+      { label: s.makeSkin, click: () => openMaker() },
       { type: 'separator' },
       { label: s.clickThrough, type: 'checkbox', checked: settings.clickThrough, click: (i) => update({ clickThrough: i.checked }) },
       { label: s.autoStart, type: 'checkbox', checked: settings.autoStart, click: (i) => update({ autoStart: i.checked }) },
@@ -289,6 +292,14 @@ async function boot(): Promise<void> {
   settings = loadSettings();
   registerProtocol();
   registerIpc();
+  registerMakerIpc({
+    onSaved: (id) => {
+      // a skin that is on screen right now is re-read; the tray list picks up new ones
+      if (settings.skin === id) win?.webContents.send(IPC.reloadSkin);
+      void rebuildMenu();
+    },
+    apply: (skin) => update({ skin }),
+  });
   applyAutoStart();
   createOverlay();
   createTray();
@@ -298,12 +309,17 @@ async function boot(): Promise<void> {
   screen.on('display-removed', refreshArea);
   if (!globalShortcut.register(QUIT_SHORTCUT, () => app.quit())) log('warn', `could not register ${QUIT_SHORTCUT}`);
   log('info', `started v${app.getVersion()} (electron ${process.versions.electron}, ${process.platform}, area ${JSON.stringify(area)})`);
+  if (process.argv.includes(MAKER_FLAG)) openMaker();
 }
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', () => log('info', 'second instance blocked'));
+  app.on('second-instance', (_e, argv) => {
+    // "DesktopBuddy.exe --maker" from a shortcut opens the skin maker in the instance that is already running
+    if (argv.includes(MAKER_FLAG) && app.isReady()) openMaker();
+    else log('info', 'second instance blocked');
+  });
   app.whenReady().then(boot).catch((err) => {
     log('error', `boot failed: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
     app.quit();

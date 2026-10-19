@@ -48,4 +48,8 @@ export const IPC = {
   hitbox: 'buddy:hitbox',
   dragging: 'buddy:dragging',
   log: 'buddy:log',
+  reloadSkin: 'buddy:reload-skin',
+  makerExisting: 'buddy:maker-existing',
+  makerSave: 'buddy:maker-save',
+  makerApply: 'buddy:maker-apply',
 } as const;

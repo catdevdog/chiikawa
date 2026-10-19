@@ -26,6 +26,19 @@ export type PetState =
   | 'surprised'
   | 'happy';
 
+export const PET_STATES: readonly PetState[] = [
+  'idle',
+  'walk',
+  'run',
+  'sit',
+  'sleep',
+  'held',
+  'fall',
+  'land',
+  'surprised',
+  'happy',
+];
+
 export type ParticleKind = 'heart' | 'z';
 
 export interface Particle {

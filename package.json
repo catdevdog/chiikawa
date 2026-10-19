@@ -12,8 +12,8 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev:web": "vite",
-    "build:renderer": "vite build",
+    "dev:web": "vite --configLoader bundle",
+    "build:renderer": "vite build --configLoader bundle",
     "build:shell": "node scripts/build-shell.mjs",
     "build": "npm run build:renderer && npm run build:shell",
     "start": "npm run build && electron .",

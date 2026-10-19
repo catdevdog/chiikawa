@@ -78,6 +78,12 @@ async function start(): Promise<void> {
   });
   host.onWorld((w) => resize(w.width, w.height));
   host.onSettings((s) => void apply(s));
+  host.onReloadSkin(() => {
+    void loadSkinOrDefault(settings.skin).then((next) => {
+      skin = next;
+      pet.setSprite(skin.box, skin.hitbox);
+    });
+  });
   if (host.harness) {
     panel = mountHarness({ settings, skins: info.skins, patch: (p) => host.patchSettings?.(p) });
     (window as unknown as { __buddy: unknown }).__buddy = {

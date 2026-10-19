@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('buddyHost', {
   onCursor: (cb: (p: Vec2) => void) => on(IPC.cursor, cb),
   onSettings: (cb: (s: Settings) => void) => on(IPC.settings, cb),
   onWorld: (cb: (w: { width: number; height: number }) => void) => on(IPC.world, cb),
+  onReloadSkin: (cb: () => void) => on(IPC.reloadSkin, cb),
   reportHitbox: (report: HitboxReport) => ipcRenderer.send(IPC.hitbox, report),
   setDragging: (dragging: boolean) => ipcRenderer.send(IPC.dragging, dragging),
   log: (level: string, message: string) => ipcRenderer.send(IPC.log, level, message),

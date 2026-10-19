@@ -1,23 +1,7 @@
-import { DEFAULT_CONFIG, type PetState, type Rect } from '../engine/types';
+import type { PetState, Rect } from '../engine/types';
 import { isSkinId } from '../shared/ids';
+import { parseManifest, type PoseSource, type SheetPose } from '../shared/manifest';
 import { resolvePose } from './poses';
-
-/** manifest.json of a skin pack. Only `poses.idle` is required. */
-export interface SkinManifest {
-  name?: string;
-  /** sprite box in px at scale 1; every pose is fitted into it, bottom-centred */
-  size?: { w: number; h: number };
-  /** feet point inside the box, as fractions */
-  anchor?: { x: number; y: number };
-  /** body area inside the box, as fractions; drives clicking and screen-edge limits */
-  hitbox?: Rect;
-  /** direction the artwork faces; the pet is mirrored when it walks the other way */
-  facing?: 'left' | 'right';
-  /** pose name -> image file (png, svg, gif, apng, webp) */
-  poses: Record<string, string>;
-  /** optional state -> pose name overrides */
-  states?: Partial<Record<PetState, string>>;
-}
 
 export interface Frame {
   image: CanvasImageSource;
@@ -54,35 +38,8 @@ export interface Skin {
   /** 1 if the artwork faces right, -1 if it faces left */
   artFacing: 1 | -1;
   spriteFor(state: PetState): Sprite;
-}
-
-const num = (v: unknown, fallback: number, min: number, max: number): number =>
-  typeof v === 'number' && Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : fallback;
-
-function parseManifest(raw: unknown, id: string): SkinManifest {
-  if (!raw || typeof raw !== 'object') throw new Error(`skin "${id}": manifest.json must be an object`);
-  const m = raw as Record<string, any>;
-  if (!m.poses || typeof m.poses !== 'object') throw new Error(`skin "${id}": "poses" is missing`);
-  const poses: Record<string, string> = {};
-  for (const [name, file] of Object.entries(m.poses)) {
-    if (typeof file === 'string' && file) poses[name] = file;
-  }
-  if (!poses.idle) throw new Error(`skin "${id}": "poses.idle" is required`);
-  const d = DEFAULT_CONFIG;
-  return {
-    name: typeof m.name === 'string' ? m.name : undefined,
-    size: { w: num(m.size?.w, d.sprite.w, 16, 1024), h: num(m.size?.h, d.sprite.h, 16, 1024) },
-    anchor: { x: num(m.anchor?.x, d.sprite.anchorX, 0, 1), y: num(m.anchor?.y, d.sprite.anchorY, 0, 1) },
-    hitbox: {
-      x: num(m.hitbox?.x, d.hitbox.x, 0, 1),
-      y: num(m.hitbox?.y, d.hitbox.y, 0, 1),
-      w: num(m.hitbox?.w, d.hitbox.w, 0.05, 1),
-      h: num(m.hitbox?.h, d.hitbox.h, 0.05, 1),
-    },
-    facing: m.facing === 'left' ? 'left' : 'right',
-    poses,
-    states: typeof m.states === 'object' && m.states ? m.states : undefined,
-  };
+  /** true when the artwork animates itself, so the engine's hop and squash should be skipped */
+  motionOff(state: PetState): boolean;
 }
 
 /** Pose files must stay inside the skin's own folder. */
@@ -103,9 +60,7 @@ export async function loadSkin(id: string, base = '/skins'): Promise<Skin> {
   const manifest = parseManifest(await res.json(), id);
   const size = manifest.size!;
   const entries = await Promise.all(
-    Object.entries(manifest.poses).map(
-      async ([pose, file]) => [pose, await loadSprite(resolveInside(dir, file), size)] as const,
-    ),
+    Object.entries(manifest.poses).map(async ([pose, source]) => [pose, await loadPose(dir, source, size)] as const),
   );
   const sprites = new Map(entries);
   const available = new Set(sprites.keys());
@@ -116,7 +71,13 @@ export async function loadSkin(id: string, base = '/skins'): Promise<Skin> {
     hitbox: manifest.hitbox!,
     artFacing: manifest.facing === 'left' ? -1 : 1,
     spriteFor: (state) => sprites.get(resolvePose(state, available, manifest.states))!,
+    motionOff: (state) => manifest.motion?.[state] === 'off',
   };
+}
+
+function loadPose(dir: string, source: PoseSource, size: { w: number; h: number }): Promise<Sprite> {
+  if (typeof source === 'string') return loadSprite(resolveInside(dir, source), size);
+  return loadSheet(resolveInside(dir, source.sheet), source);
 }
 
 const RASTER_TYPES: Record<string, string> = {
@@ -175,4 +136,29 @@ async function loadImage(url: string, size: { w: number; h: number }): Promise<S
   const width = img.naturalWidth || size.w;
   const height = img.naturalHeight || size.h;
   return new Sprite([{ image: img, width, height }], [Infinity]);
+}
+
+/** Slices a sprite sheet into one bitmap per frame. */
+async function loadSheet(url: string, pose: SheetPose): Promise<Sprite> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${res.status} ${url}`);
+  const sheet = await createImageBitmap(await res.blob());
+  try {
+    const { frameWidth: fw, frameHeight: fh, count } = pose;
+    const columns = Math.max(1, Math.floor(sheet.width / fw));
+    if (Math.ceil(count / columns) * fh > sheet.height) {
+      throw new Error(`sprite sheet ${pose.sheet} is too small for ${count} frames of ${fw}x${fh}`);
+    }
+    const frames: Frame[] = [];
+    for (let i = 0; i < count; i++) {
+      const image = await createImageBitmap(sheet, (i % columns) * fw, Math.floor(i / columns) * fh, fw, fh);
+      frames.push({ image, width: fw, height: fh });
+    }
+    const durations = Array.from({ length: count }, (_, i) =>
+      typeof pose.durations === 'number' ? pose.durations : (pose.durations?.[i] ?? 100),
+    );
+    return new Sprite(frames, count === 1 ? [Infinity] : durations);
+  } finally {
+    sheet.close();
+  }
 }

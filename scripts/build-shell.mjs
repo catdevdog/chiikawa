@@ -13,3 +13,4 @@ const common = {
 
 await build({ ...common, entryPoints: ['src/shell/main.ts'], outfile: 'dist/shell/main.cjs' });
 await build({ ...common, entryPoints: ['src/shell/preload.ts'], outfile: 'dist/shell/preload.cjs' });
+await build({ ...common, entryPoints: ['src/shell/maker-preload.ts'], outfile: 'dist/shell/maker-preload.cjs' });
