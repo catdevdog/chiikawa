@@ -1,6 +1,7 @@
 import { Flock, Pet } from '../engine';
+import { nearestSide } from '../engine/peek';
 import type { NoticeEvent, PetView, Platform, Rect, SayEvent, Vec2 } from '../engine/types';
-import { clamp, inEllipse, mulberry32 } from '../engine/vec';
+import { clamp, mulberry32 } from '../engine/vec';
 import { bodyOf, fitTo } from '../shared/body';
 import { MAX_FRIENDS, type Area, type PointerReport, type Settings, type SkinReport, type ViewFrame } from '../shared/types';
 
@@ -91,6 +92,11 @@ export class Stage {
     return this.members.map((m) => ({ id: m.id, view: m.pet.view }));
   }
 
+  /** The pets that are hiding at a wall (on the way to it or waiting), by skin id. For tests and diagnostics. */
+  get hiding(): string[] {
+    return this.members.filter((m) => m.pet.peeking).map((m) => m.id);
+  }
+
   /** How big each pet looks (by its picture), the scale it is drawn at, and what that makes of it on screen. For tests and diagnostics. */
   get sizes(): { id: string; body: number; scale: number; looks: number }[] {
     return this.members.map((m) => {
@@ -115,8 +121,25 @@ export class Stage {
     if (hidden) this.putAway();
     else {
       this.resume();
-      for (const m of this.members) m.pet.say('start');
+      for (const m of this.members) if (!m.pet.peeking) m.pet.say('start');
     }
+  }
+
+  /**
+   * Everyone hides behind the wall nearest to `origin` (the main character by default): the outer edge of the screens
+   * on its side. They all run to it and each takes a place of its own up the wall, the nearest to it at the bottom.
+   * False when there is nobody to hide, or nowhere.
+   */
+  hideAtWall(origin?: string): boolean {
+    if (this.hidden) return false;
+    const from = this.members.find((m) => m.id === origin) ?? this.members[0];
+    if (!from) return false;
+    return this.peekAll(from);
+  }
+
+  /** Everyone that hides comes out, as if one of them had been found. */
+  findAll(): void {
+    this.seekAll(null);
   }
 
   /** The user calls the pets: out of hiding if need be, and over to the cursor. */
@@ -214,8 +237,10 @@ export class Stage {
       member.pet.pointerDown(at);
       this.pressed = member.pet.pressed ? { win, member } : null;
     } else if (this.pressed?.win === win) {
-      this.pressed.member.pet.pointerUp(c);
+      const { member } = this.pressed;
+      member.pet.pointerUp(c);
       this.pressed = null;
+      this.answerClick(member);
     }
     this.captureMouse(c);
   }
@@ -238,6 +263,13 @@ export class Stage {
       if (m.pet.pressed || (m === front && moved && !covered)) m.pet.pointerMove(c);
       if (covered || m !== front || !m.pet.isOver(c)) m.pet.pointerLeave();
     }
+    // a pet that hides was picked up: that finds the others too
+    for (const m of this.members) {
+      if (m.pet.takeFound()) {
+        this.seekAll(m);
+        break;
+      }
+    }
     this.flock.step(
       dt,
       this.members.map((m) => ({ id: m.id, pet: m.pet })),
@@ -251,6 +283,42 @@ export class Stage {
   }
 
   // --- internals -----------------------------------------------------------
+
+  /** Three clicks on a pet send everyone to hide; a click on one that hides brings everyone out. */
+  private answerClick(m: Member): void {
+    if (m.pet.takeTriple()) this.peekAll(m);
+    else if (m.pet.takeFound()) this.seekAll(m);
+  }
+
+  private peekAll(origin: Member): boolean {
+    const areas = [...this.windows.keys()].map((w) => rectOf(w.area));
+    const hiders = this.members.filter((m) => m.pet.mode !== 'attach');
+    if (areas.length === 0 || hiders.length === 0) return false;
+    // the wall is the outer edge of all the screens, on the side the clicked pet is nearer to
+    const x0 = Math.min(...areas.map((r) => r.x));
+    const x1 = Math.max(...areas.map((r) => r.x + r.w));
+    const side = nearestSide(origin.pet.view.x, { x0, x1 });
+    const x = side === 1 ? x1 : x0;
+    // screens side by side with their edges at the wall share it; the one the pet is level with is where they hide
+    const oy = origin.pet.view.y;
+    const away = (r: Rect): number => Math.abs(clamp(oy, r.y, r.y + r.h) - oy);
+    const rect = areas.filter((r) => (side === 1 ? r.x + r.w : r.x) === x).reduce((best, r) => (away(r) < away(best) ? r : best));
+    const floorY = rect.y + rect.h;
+    // from the floor up, the one nearest to the wall first; each place is as high as the tallest of them, so that none covers another
+    const order = [...hiders].sort((a, b) => Math.abs(a.pet.view.x - x) - Math.abs(b.pet.view.x - x));
+    const height = (m: Member): number => (m.pet.peekLayout.top + m.pet.peekLayout.bottom) * m.pet.view.scale;
+    const unit = Math.max(...order.map(height)) * 1.08;
+    order.forEach((m, i) => {
+      const top = m.pet.peekLayout.top * m.pet.view.scale;
+      m.pet.hideAt({ x, side, floorY, y: Math.max(rect.y + top + 8, floorY - i * unit) });
+    });
+    return true;
+  }
+
+  /** The pets that hide come out; `found` is the one that was found and says so. */
+  private seekAll(found: Member | null): void {
+    for (const m of this.members) m.pet.unhide(m === found);
+  }
 
   /** Clears every window and lets the mouse through; a pet in someone's hand is let go. */
   private putAway(): void {
@@ -355,7 +423,7 @@ export class Stage {
       mode: standing ? 'wander' : s.mode,
       rng: this.deps.rng ?? mulberry32(Date.now() + this.members.length * 7919 + (standing?.length ?? 0) * 104729),
       x: standing ? this.startX(first, standing) : undefined,
-      config: { scale: s.scale, roam: s.roam, sprite: skin.box, hitbox: skin.hitbox },
+      config: { scale: s.scale, roam: s.roam, sprite: skin.box, hitbox: skin.hitbox, peek: skin.peek },
     });
     const m: Member = { id, pet, skin, from: null, v: { x: 0, y: 0 }, sent: { state: '', facing: 0, interactive: false, scale: 0, particles: 0 }, sentAt: -Infinity };
     pet.setSpeech(s.speech);
@@ -370,7 +438,7 @@ export class Stage {
   /** The pet wears this skin (its size, its words and its actions). */
   private dress(m: Member, skin: SkinReport): void {
     m.skin = skin;
-    m.pet.setSprite(skin.box, skin.hitbox);
+    m.pet.setSprite(skin.box, skin.hitbox, skin.peek);
     m.pet.setLines(skin.lines);
     m.pet.setActions(skin.actions);
   }
@@ -462,7 +530,7 @@ export class Stage {
   private captureMouse(c: Vec2): void {
     if (this.members.length === 0) return;
     const covered = this.deps.covered(c);
-    const onPet = !covered && this.members.some((m) => m.pet.view.interactive && inEllipse(c, m.pet.view.hitbox));
+    const onPet = !covered && this.members.some((m) => m.pet.view.interactive && m.pet.isOver(c));
     for (const [win, st] of this.windows) {
       const take = this.pressed ? win === this.pressed.win : onPet && contains(win.area, c);
       if (take === !st.ignoring) continue;

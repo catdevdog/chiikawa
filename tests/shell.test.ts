@@ -105,6 +105,23 @@ describe('what an overlay may report', () => {
     expect(parseSkinReport(report)).toEqual({ ...report, lines: {}, actions: {} });
   });
 
+  it('carries how big the character looks, when that is a size, and leaves it out otherwise', () => {
+    expect(parseSkinReport({ ...report, body: 104.5 })!.body).toBe(104.5);
+    expect(parseSkinReport({ ...report, body: 1e9 })!.body).toBe(2048);
+    expect(parseSkinReport({ ...report, body: 0.1 })!.body).toBe(4);
+    for (const body of [undefined, null, 'big', Number.NaN]) expect(parseSkinReport({ ...report, body }), String(body)).not.toHaveProperty('body');
+  });
+
+  it('carries how the skin\'s picture for hiding meets the wall: all four numbers, or none', () => {
+    const peek = { edge: 63, reach: 61, top: 84, bottom: 3 };
+    expect(parseSkinReport({ ...report, peek })!.peek).toEqual(peek);
+    // out-of-range numbers are pulled in
+    expect(parseSkinReport({ ...report, peek: { ...peek, reach: 1e6 } })!.peek!.reach).toBe(2048);
+    for (const bad of [undefined, null, 5, 'x', {}, { ...peek, edge: 'a' }, { edge: 1, reach: 1, top: 1 }, { ...peek, top: Number.NaN }]) {
+      expect(parseSkinReport({ ...report, peek: bad }), JSON.stringify(bad)).not.toHaveProperty('peek');
+    }
+  });
+
   it('says which skin it is about, and refuses a name that cannot be a skin', () => {
     expect(parseSkinReport({ ...report, id: 'my-skin_2' })!.id).toBe('my-skin_2');
     for (const id of [undefined, null, 5, '', '..', '../x', 'a/b', 'a\\b', ['usagi']]) expect(parseSkinReport({ ...report, id }), String(id)).toBeNull();

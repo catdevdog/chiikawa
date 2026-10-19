@@ -83,6 +83,24 @@
       "frameHeight": 323,
       "count": 8,
       "durations": 50
+    },
+    "peek": {
+      "sheet": "peek.png",
+      "frameWidth": 305,
+      "frameHeight": 323,
+      "count": 10,
+      "durations": [
+        1500,
+        70,
+        90,
+        70,
+        900,
+        60,
+        60,
+        60,
+        60,
+        1000
+      ]
     }
   },
   "motion": {
@@ -258,6 +276,17 @@
           "rakko"
         ]
       }
+    ],
+    "peek": [
+      "쉿~",
+      "숨었다~",
+      "아직이야~",
+      "어디게~?"
+    ],
+    "found": [
+      "들켰다~!",
+      "찾았네! 대단해!",
+      "와, 들켰어!?"
     ]
   },
   "actions": {

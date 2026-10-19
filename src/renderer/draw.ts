@@ -38,9 +38,12 @@ export function drawScene(ctx: CanvasRenderingContext2D, pets: readonly DrawnPet
   ctx.restore();
 }
 
+/** How far (radians) a pet with no picture of its own for hiding leans its ordinary picture towards the wall. */
+const PEEK_LEAN = 0.17;
+
 function drawShadow(ctx: CanvasRenderingContext2D, v: PetView, skin: Skin): void {
-  // nothing underneath a pet that is hanging or in the air
-  if (v.pivot === 'top' || v.state === 'fall') return;
+  // nothing underneath a pet that is hanging, in the air or up a wall
+  if (v.pivot === 'top' || v.state === 'fall' || v.state === 'peek') return;
   const rx = skin.box.w * v.scale * 0.3 * (1 - Math.min(v.lift / (60 * v.scale), 0.4));
   ctx.save();
   ctx.fillStyle = 'rgba(0, 0, 0, 0.11)';
@@ -59,6 +62,8 @@ function drawPet(ctx: CanvasRenderingContext2D, v: PetView, skin: Skin): void {
   const sy = own ? 1 : v.sy;
   const lift = own ? 0 : v.lift;
   const rot = own && v.pivot !== 'top' ? 0 : v.rot;
+  // a skin without a picture of its own for hiding leans its ordinary one towards the wall (the wall is behind the pet)
+  const lean = v.state === 'peek' && !skin.peek ? -v.facing * PEEK_LEAN : 0;
   // fit the frame into the sprite box, bottom-centred
   const fit = Math.min(bw / frame.width, bh / frame.height);
   const dw = frame.width * fit;
@@ -76,6 +81,13 @@ function drawPet(ctx: CanvasRenderingContext2D, v: PetView, skin: Skin): void {
     ctx.translate(0, pivotY);
     ctx.rotate(rot);
     ctx.translate(0, -pivotY);
+  }
+  if (lean) {
+    // about the middle of the body, so that the head leans out and the feet stay behind the wall
+    const middle = -(anchorY - skin.hitbox.y - skin.hitbox.h / 2) * bh * v.scale;
+    ctx.translate(0, middle);
+    ctx.rotate(lean);
+    ctx.translate(0, -middle);
   }
   ctx.scale(v.facing * skin.artFacing * v.scale, v.scale);
   ctx.scale(sx, sy);

@@ -38,7 +38,21 @@
     "sleep": "sleep.png",
     "held": "held.png",
     "surprised": "surprised.png",
-    "happy": "happy.png"
+    "happy": "happy.png",
+    "peek": {
+      "sheet": "peek.png",
+      "frameWidth": 320,
+      "frameHeight": 310,
+      "count": 6,
+      "durations": [
+        1500,
+        70,
+        90,
+        70,
+        900,
+        1000
+      ]
+    }
   },
   "textColor": "#7a5230",
   "lines": {
@@ -230,6 +244,16 @@
           "usagi"
         ]
       }
+    ],
+    "peek": [
+      "…기척을 죽인다.",
+      "…잠복 중이다.",
+      "…조용히 해라."
+    ],
+    "found": [
+      "…들켰나.",
+      "…음. 들켰군.",
+      "…발각이다."
     ]
   }
 }

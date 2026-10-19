@@ -20,6 +20,7 @@ import {
   type SpeechLevel,
   type Vec2,
 } from './types';
+import { defaultPeek, type PeekLayout, type Wall } from './peek';
 import { planHop } from './perch';
 import { Region, type Reach } from './region';
 import { Speaker, textWidth } from './speech';
@@ -70,6 +71,14 @@ const STAY_CHANCE = 0.8;
 const WINDOW_VISIT_CHANCE = 0.35;
 /** how fast a pet follows the window it stands on when that moves (time constant, ms) */
 const CARRY_MS = 90;
+/** hiding at a wall: how long slipping behind it (and up it) takes, and how a waiting pet now and then ducks back and comes out again */
+const SLIDE_MS = 650;
+const DUCK_PERIOD_MS = 4600;
+const DUCK_IN_MS = 380;
+const DUCK_HOLD_MS = 520;
+const DUCK_DEPTH = 15;
+/** a waiting pet says something to itself this often (ms, from and to) */
+const PEEK_MURMUR_MS = [9_000, 17_000] as const;
 
 export interface PetOptions {
   /** one screen from the origin; its bottom edge is the floor */
@@ -138,6 +147,14 @@ export class Pet {
   private carry: Vec2 = { x: 0, y: 0 };
   /** the window a hop is aimed at, while the pet is in the air for it */
   private hop: string | null = null;
+  /**
+   * hiding behind a wall: where, and how far it has got (`go`: running to the wall, `slide`: slipping behind it and up
+   * it, `wait`: peeking out); where it stands before it slips behind, where it peeks from, and how far it has ducked back
+   */
+  private peek: { wall: Wall; phase: 'go' | 'slide' | 'wait'; ms: number; stand: Vec2; from: Vec2; spot: Vec2; murmurIn: number; duck: number } | null = null;
+  /** a triple click, and a click on a pet that hides, waiting to be taken by whoever runs the pets */
+  private tripled = false;
+  private found = false;
 
   private cursor: Vec2 | null = null;
   private prevCursor: Vec2 | null = null;
@@ -194,8 +211,14 @@ export class Pet {
 
   /** Replaces the screens the pet lives on (a monitor came or went, or the work area changed). */
   setRegion(rects: Rect[]): void {
+    const same = rects.length === this.region.rects.length && rects.every((r, i) => {
+      const o = this.region.rects[i]!;
+      return r.x === o.x && r.y === o.y && r.w === o.w && r.h === o.h;
+    });
     this.region = new Region(rects);
-    this.pos = this.clampFeet(this.pos);
+    // the wall may be gone with the screens it was the edge of
+    if (this.peek && !same) this.cancelPeek();
+    this.pos = this.peek ? this.pos : this.clampFeet(this.pos);
     if (this.target) this.target = this.clampFeet(this.target);
     // the screens are numbered anew: not a trip from one to another
     this.screen = -2;
@@ -208,7 +231,7 @@ export class Pet {
   setScale(scale: number, textScale: number = scale): void {
     this.cfg.scale = scale;
     this.cfg.textScale = textScale;
-    this.pos = this.clampFeet(this.pos);
+    this.replace();
   }
 
   setRoam(roam: Roam): void {
@@ -240,9 +263,20 @@ export class Pet {
   }
 
   /** Called when a skin changes the sprite box. */
-  setSprite(sprite: PetConfig['sprite'], hitbox: Rect): void {
+  setSprite(sprite: PetConfig['sprite'], hitbox: Rect, peek?: PeekLayout | null): void {
     this.cfg.sprite = { ...sprite };
     this.cfg.hitbox = { ...hitbox };
+    this.cfg.peek = peek ?? undefined;
+    this.replace();
+  }
+
+  /** The pet's size or picture changed: it is put back where it should be (a pet that hides is put at its place at the wall). */
+  private replace(): void {
+    if (this.peek) {
+      this.peek.spot = this.peekSpot(this.peek.wall);
+      if (this.state === 'peek' && this.peek.phase === 'wait') this.pos = { ...this.peek.spot };
+      return;
+    }
     this.pos = this.clampFeet(this.pos);
   }
 
@@ -286,7 +320,7 @@ export class Pet {
    * or the pet is in someone's hand or in the air.
    */
   perform(name?: string): boolean {
-    if (this.holder || this.state === 'held' || this.state === 'fall' || this.state === 'land') return false;
+    if (this.peek || this.holder || this.state === 'held' || this.state === 'fall' || this.state === 'land') return false;
     const pick = name ? (this.actions[name] ? ([name, this.actions[name]!] as const) : null) : this.pickAction(null);
     if (!pick) return false;
     this.summoned = false;
@@ -326,6 +360,143 @@ export class Pet {
     else if (role === 'reply') this.say('reply', partner);
   }
 
+  // --- hiding at a wall -------------------------------------------------------
+
+  /** Did three clicks in a row land on the pet since this was last asked? What everyone does about it is up to whoever runs the pets. */
+  takeTriple(): boolean {
+    const was = this.tripled;
+    this.tripled = false;
+    return was;
+  }
+
+  /** Was a pet that hides clicked (or picked up) since this was last asked? */
+  takeFound(): boolean {
+    const was = this.found;
+    this.found = false;
+    return was;
+  }
+
+  /** Is the pet hiding: on its way to the wall, slipping behind it, or peeking out from it? */
+  get peeking(): boolean {
+    return this.peek !== null;
+  }
+
+  /** How big the pet is when it peeks, and where its picture meets the wall (what the skin says, or what its ordinary picture makes of it). */
+  get peekLayout(): PeekLayout {
+    return this.layout();
+  }
+
+  /**
+   * Hides behind `wall`: runs to it, slips behind it and up it to the place it peeks out from, and waits there until
+   * it is found. A pet that hangs off the cursor stays where it is.
+   */
+  hideAt(wall: Wall): void {
+    if (this.mode === 'attach') return;
+    this.cancelPointer();
+    this.holder = null;
+    this.summoned = false;
+    this.act = null;
+    this.fleeDir = null;
+    this.target = null;
+    this.hop = null;
+    this.leavePerch();
+    this.interactionIdleMs = 0;
+    if (this.state === 'sleep') this.rouse();
+    const stand = this.clampFeet({ x: wall.x, y: this.cfg.roam === 'free' ? wall.y : wall.floorY });
+    this.peek = { wall, phase: 'go', ms: 0, stand, from: { ...this.pos }, spot: this.peekSpot(wall), murmurIn: this.nextPeekMurmur(), duck: 0 };
+    // in the air it first comes down; anything else, it sets off at a run
+    if (this.state !== 'fall' && this.state !== 'land' && this.state !== 'held') this.enter('run', true);
+  }
+
+  /**
+   * Comes out from behind the wall (found, or the user wants it): back inside the screens, pleased (`loud`: and it says so).
+   * From up on the wall a pet that walks along a floor drops to it.
+   */
+  unhide(loud = false): void {
+    if (!this.peek) return;
+    this.peek = null;
+    this.target = null;
+    this.interactionIdleMs = 0;
+    this.pos = this.clampFeet(this.pos);
+    if (loud) this.say('found');
+    // still in the air on its way to the wall: it just goes on falling
+    if (this.state === 'fall' || this.state === 'land') return;
+    if (this.cfg.roam === 'floor' && this.pos.y < this.region.floor(this.pos, this.reach()) - 1) this.startFall(0, 0);
+    else this.react('happy');
+  }
+
+  /** Stops hiding without a word or a reaction (the pet is being picked up, or the screens changed under it). */
+  private cancelPeek(): void {
+    if (!this.peek) return;
+    const hidden = this.state === 'peek';
+    this.peek = null;
+    this.target = null;
+    this.pos = this.clampFeet(this.pos);
+    // its picture for hiding is not one to stand around in
+    if (hidden) this.enter('idle', true);
+  }
+
+  /** The place the feet are at while the pet peeks out: the far edge of the picture just past the wall, so that no gap shows between them. */
+  private peekSpot(wall: Wall): Vec2 {
+    return { x: wall.x - wall.side * (this.layout().edge * this.cfg.scale - 1), y: wall.y };
+  }
+
+  private layout(): PeekLayout {
+    return this.cfg.peek ?? defaultPeek(this.cfg.sprite, this.cfg.hitbox);
+  }
+
+  private nextPeekMurmur(): number {
+    const [lo, hi] = PEEK_MURMUR_MS;
+    return (lo + this.rng() * (hi - lo)) / (this.speaker.chatty ? 4 : 1);
+  }
+
+  /** Runs to the wall, slips behind it, and waits there peeking out (now and then ducking back for a moment). */
+  private stepPeek(dt: number): void {
+    const pk = this.peek;
+    if (!pk) return;
+    pk.ms += dt;
+    if (pk.phase === 'go') {
+      // up on a window: down to the floor first
+      if (this.cfg.roam === 'floor' && !this.standingOn() && this.pos.y < this.region.floor(this.pos, this.reach()) - 1) {
+        this.startFall(0, 0);
+        return;
+      }
+      this.enter('run');
+      if (!this.moveToward(pk.stand, this.k(this.cfg.runSpeed), dt)) return;
+      pk.phase = 'slide';
+      pk.ms = 0;
+      pk.from = { ...this.pos };
+      pk.spot = this.peekSpot(pk.wall);
+      this.facing = pk.wall.side === 1 ? -1 : 1;
+      this.vel = { x: 0, y: 0 };
+      this.enter('peek', true);
+      return;
+    }
+    if (pk.phase === 'slide') {
+      const t = clamp(pk.ms / SLIDE_MS, 0, 1);
+      const e = 1 - (1 - t) ** 3;
+      this.pos = { x: pk.from.x + (pk.spot.x - pk.from.x) * e, y: pk.from.y + (pk.spot.y - pk.from.y) * e };
+      if (t >= 1) {
+        pk.phase = 'wait';
+        pk.ms = 0;
+      }
+      return;
+    }
+    // waiting: now and then it ducks back behind the wall and comes out again (only ever towards the wall, so that
+    // no gap shows between the picture and the wall)
+    const c = pk.ms % DUCK_PERIOD_MS;
+    const start = DUCK_PERIOD_MS - (DUCK_IN_MS * 2 + DUCK_HOLD_MS);
+    const into = c - start;
+    pk.duck = into <= 0 ? 0 : into < DUCK_IN_MS ? into / DUCK_IN_MS : into < DUCK_IN_MS + DUCK_HOLD_MS ? 1 : Math.max(0, 1 - (into - DUCK_IN_MS - DUCK_HOLD_MS) / DUCK_IN_MS);
+    const ease = pk.duck * pk.duck * (3 - 2 * pk.duck);
+    this.pos = { x: pk.spot.x + pk.wall.side * ease * this.k(DUCK_DEPTH), y: pk.spot.y };
+    pk.murmurIn -= dt;
+    if (pk.murmurIn <= 0) {
+      pk.murmurIn = this.nextPeekMurmur();
+      this.say('peek');
+    }
+  }
+
   /**
    * The user calls the pet. It wakes up and runs to the cursor, or drops in from above when that is far away or on
    * another screen, and answers when it gets there. A pet that hangs off the cursor just answers.
@@ -333,6 +504,8 @@ export class Pet {
   call(): void {
     // someone is dragging it right now; the cursor is busy
     if (this.holder === 'user') return;
+    // out from behind the wall: it is wanted
+    if (this.peek) this.cancelPeek();
     const c = this.cursor;
     if (this.holder === 'cursor' || !c) {
       this.say('call');
@@ -350,6 +523,11 @@ export class Pet {
 
   /** Something happened on the computer: the pet perks up (or is startled) and says so. */
   notice(event: NoticeEvent): void {
+    // a pet that hides keeps hiding, and can only say it
+    if (this.peek) {
+      this.say(event);
+      return;
+    }
     // in someone's hand or in the air it can only say it
     if (this.state !== 'held' && this.state !== 'fall' && this.state !== 'land') {
       if (this.state === 'sleep') this.rouse();
@@ -362,6 +540,7 @@ export class Pet {
 
   setMode(mode: Mode): void {
     if (mode === this.mode) return;
+    if (this.peek) this.cancelPeek();
     const wasAttached = this.mode === 'attach';
     this.mode = mode;
     this.target = null;
@@ -381,6 +560,11 @@ export class Pet {
   }
 
   isOver(p: Vec2): boolean {
+    if (this.state === 'peek') {
+      // what shows of a pet that hides is a part of the face and the hands: everything in the box counts
+      const r = this.hitbox();
+      return p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
+    }
     return inEllipse(p, this.hitbox());
   }
 
@@ -396,6 +580,8 @@ export class Pet {
       if (this.dragging) this.dragTo(p);
       return;
     }
+    // a pet that hides takes no notice of the pointer until it is clicked
+    if (this.peek) return;
     const over = this.isOver(p);
     if (over && !this.hover) this.onHoverEnter(p);
     this.hover = over;
@@ -450,16 +636,29 @@ export class Pet {
         case 'happy':
           this.stepHappy(dt);
           break;
+        case 'peek':
+          this.stepPeek(dt);
+          break;
         default:
-          this.stepBehavior(dt);
+          if (this.peek) this.stepPeek(dt);
+          else this.stepBehavior(dt);
       }
-      if (this.state !== 'fall') this.pos = this.settleFeet(this.pos);
+      // a pet that hides is partly beyond the edge of the screens on purpose
+      if (this.state !== 'fall' && this.state !== 'peek') this.pos = this.settleFeet(this.pos);
       this.stepSpeech(dt);
     }
     this.syncView();
   }
 
   hitbox(): Rect {
+    if (this.state === 'peek' && this.peek) {
+      // what is in view at the wall: from the wall out to how far the picture reaches, and as high and low as it goes
+      const l = this.layout();
+      const s = this.cfg.scale;
+      const { wall } = this.peek;
+      const w = l.reach * s;
+      return { x: wall.side === 1 ? wall.x - w : wall.x, y: this.pos.y - l.top * s, w, h: (l.top + l.bottom) * s };
+    }
     const { sprite, hitbox } = this.cfg;
     const w = sprite.w * this.cfg.scale;
     const h = sprite.h * this.cfg.scale;
@@ -1095,12 +1294,18 @@ export class Pet {
 
   private onClick(): void {
     if (this.state === 'fall') return;
+    // a click on a pet that hides finds it (and everyone else that hides, which whoever runs the pets sees to)
+    if (this.peek) {
+      this.found = true;
+      this.clicks = [];
+      return;
+    }
     this.clicks = this.clicks.filter((t) => this.time - t < CLICK_WINDOW_MS);
     this.clicks.push(this.time);
     if (this.clicks.length >= 3) {
+      // three clicks in a row: everybody hides (whoever runs the pets sees to that)
       this.clicks = [];
-      this.react('happy');
-      for (let i = 0; i < 4; i++) this.spawn('heart');
+      this.tripled = true;
       this.say('triple');
     } else {
       this.react('surprised');
@@ -1110,6 +1315,11 @@ export class Pet {
 
   /** `from` is where the button went down, so the pet stays glued to the point that was grabbed. */
   private startDrag(from: Vec2): void {
+    // picked up from the wall: found, and no longer hiding
+    if (this.peek) {
+      this.found = true;
+      this.cancelPeek();
+    }
     this.dragging = true;
     this.holder = 'user';
     this.summoned = false;
@@ -1402,6 +1612,9 @@ export class Pet {
         sx = 1 - (hop - 0.5) * 0.04;
         break;
       }
+      case 'peek':
+        // the picture is the whole pose: nothing of the engine's squashing, which would pull it away from the wall
+        break;
       case 'act': {
         // 'off': the picture moves by itself
         const motion = this.act?.def.motion ?? 'still';
@@ -1435,7 +1648,8 @@ export class Pet {
     v.particles = this.particles;
     v.hitbox = this.hitbox();
     v.interactive = this.canInteract();
-    v.animating = this.particles.length > 0 || !(this.state === 'idle' || this.state === 'sit' || this.state === 'sleep');
+    const calm = this.state === 'idle' || this.state === 'sit' || this.state === 'sleep' || (this.state === 'peek' && this.peek?.phase === 'wait' && this.peek.duck === 0);
+    v.animating = this.particles.length > 0 || !calm;
     v.action = this.state === 'act' ? (this.act?.def.pose ?? null) : null;
   }
 }

@@ -116,11 +116,20 @@ Situations: start, hover, click, rub, triple, pickup, throw, land, flee, follow,
 idle, sit, sleep, wake, cross (walking over to another monitor), call (called over with the
 tray or Ctrl+Alt+Shift+C), welcome (the user is back: unlock, wake from sleep), plug, unplug
 (the charger goes in or out), lowBattery, meet (greeting a friend that came close), reply (answering
-a friend's greeting).
+a friend's greeting), peek (talking to itself while it hides), found (found while it hides). The
+words for triple (three clicks) are said as the pet runs off to hide.
 
 meet and reply lines can be meant for one friend only, by the folder name of its skin:
   "meet": ["Hi!", { "text": "Oh, it's you!", "with": ["usagi"] }]
 Lines meant for the friend that is met are used when there are any; otherwise the lines without "with".
+
+Hiding (optional): three clicks on a pet send every pet to the nearest edge of the screens, where each
+peeks out with only a part of its face and its hands in view until one of them is clicked. A skin may
+draw that itself, as the pose "peek" in "poses"; without one the ordinary picture leans towards the wall.
+Draw it as if a wall stood against the back of the picture, the side the artwork does not face (the right
+side when "facing" is "left"): the picture is cut there, and what shows reaches out from it, a face tilted
+towards the wall and the hands holding the edge. Make it as big as the other poses, with as many frames as
+"idle" has, and the blinking goes on in it as well.
 
 Actions (optional): short shows with pictures of their own, now and then or for a situation.
 Put the pictures in "poses" and list them:
@@ -146,10 +155,18 @@ unplug, lowBattery, call) that do it instead of the plain reaction. The skin mak
 수 있고, 글자 색은 "textColor"입니다. 상황은 start, hover, click, rub, triple, pickup, throw, land,
 flee, follow, attach, idle, sit, sleep, wake, cross(다른 모니터로 건너갈 때), call(불렀을 때),
 welcome(자리로 돌아왔을 때로, 잠금 해제와 절전 복귀가 해당됩니다), plug와 unplug(충전기를 꽂고 뺄 때), lowBattery(배터리 부족),
-meet(다가온 친구에게 하는 인사), reply(친구의 인사에 하는 대답)입니다.
+meet(다가온 친구에게 하는 인사), reply(친구의 인사에 하는 대답), peek(벽에 숨어서 하는 혼잣말),
+found(숨어 있다가 들켰을 때)입니다. triple(세 번 클릭)은 숨으러 달려갈 때 하는 말입니다.
 meet와 reply 줄에 "with": ["usagi"]처럼 친구 스킨의 폴더 이름을 적으면 그 친구에게만 하는 말이 됩니다. 그 친구를 위한
 줄이 있으면 그 줄만 쓰고, 없으면 "with"가 없는 줄을 씁니다.
 트레이 메뉴의 "대사"에서 끄거나 반응할 때만 말하게 할 수 있습니다.
+
+숨기(선택): 펫을 세 번 클릭하면 모든 펫이 화면의 가장 가까운 가장자리로 가서 얼굴 일부와 손만 내밀고
+숨습니다. 숨은 펫 가운데 하나를 클릭하면 모두 나옵니다. "poses"에 "peek" 포즈를 넣으면 그 그림으로 숨고,
+없으면 기본 그림이 벽 쪽으로 기울어집니다. 그림은 그림이 바라보는 쪽의 반대편에 벽이 있다고 보고 그립니다
+("facing"이 "left"이면 오른쪽입니다). 그 가장자리에서 그림이 잘려 있어야 하고, 보이는 부분은 거기서부터
+나옵니다. 벽 쪽으로 기울인 얼굴과 벽을 잡은 손을 그리면 됩니다. 크기는 다른 포즈와 같게, 프레임 수는
+"idle"과 같게 하면 눈 깜빡임도 같이 움직입니다.
 
 재롱(선택): "actions"에 적으면 펫이 가끔, 또는 어떤 상황에서 그림으로 짧은 행동을 합니다. 그림은 "poses"에
 다른 포즈처럼 넣고 이렇게 적습니다: "actions": { "camera": { "pose": "camera", "ms": 3600, "motion": "still",

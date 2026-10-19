@@ -49,6 +49,7 @@ const reportOf = (id: string, skin: Skin): SkinReport => ({
   box: { ...skin.box },
   hitbox: { ...skin.hitbox },
   ...(skin.body === undefined ? {} : { body: skin.body }),
+  ...(skin.peek === undefined ? {} : { peek: skin.peek }),
   lines: skin.lines,
   actions: skin.actions,
 });
@@ -99,7 +100,7 @@ async function start(): Promise<void> {
     host.reportSkin(reportOf(id, next));
     if (id === settings.skin) {
       skin = next;
-      pet?.setSprite(next.box, next.hitbox);
+      pet?.setSprite(next.box, next.hitbox, next.peek);
       pet?.setLines(next.lines);
       pet?.setActions(next.actions);
     }
@@ -128,6 +129,7 @@ async function start(): Promise<void> {
           roam: settings.roam,
           sprite: skin!.box,
           hitbox: skin!.hitbox,
+          peek: skin!.peek,
           ...(sleepAfter > 0 ? { sleepAfterMs: sleepAfter } : {}),
         },
       })
@@ -200,6 +202,13 @@ async function start(): Promise<void> {
   // In Electron the main process watches the pointer and decides when this window takes the mouse, so the
   // window only reports the buttons. The test page has no one to ask and runs the pointer through the pet.
   const at = (e: PointerEvent) => ({ x: e.clientX, y: e.clientY });
+  /** Three clicks hide the pet at the nearer side of the page; a click on a pet that hides brings it out (the test page has one pet and no stage). */
+  const answerClick = (p: Pet): void => {
+    if (p.takeTriple()) {
+      const side = p.view.x >= innerWidth / 2 ? 1 : -1;
+      p.hideAt({ x: side === 1 ? innerWidth : 0, side, floorY: innerHeight, y: innerHeight });
+    } else if (p.takeFound()) p.unhide(true);
+  };
   let pressing = false;
   canvas.addEventListener('pointerdown', (e) => {
     const p = at(e);
@@ -216,8 +225,10 @@ async function start(): Promise<void> {
   const release = (e: PointerEvent): void => {
     if (pressing) {
       pressing = false;
-      if (pet) pet.pointerUp(at(e));
-      else host.pointer({ kind: 'up', ...at(e) });
+      if (pet) {
+        pet.pointerUp(at(e));
+        answerClick(pet);
+      } else host.pointer({ kind: 'up', ...at(e) });
     }
     if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
   };
@@ -235,7 +246,11 @@ async function start(): Promise<void> {
     requestAnimationFrame(frame);
     const dt = now - last;
     last = now;
-    if (pet) pet.update(dt);
+    if (pet) {
+      pet.update(dt);
+      // picked up from the wall
+      if (pet.takeFound()) pet.unhide();
+    }
     if (!skin) return;
     // the pets in this window, each with its skin (one still being loaded is left out)
     shown.length = 0;

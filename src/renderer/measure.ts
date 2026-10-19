@@ -1,3 +1,4 @@
+import type { PeekLayout } from '../engine/peek';
 import type { Frame } from './skin';
 
 /** The longest side of the canvas a picture is measured on: plenty to count pixels by, and cheap to read back. */
@@ -27,6 +28,58 @@ export function measureBody(frame: Frame, box: { w: number; h: number }): number
     let solid = 0;
     for (let i = 3; i < data.length; i += 4) if (data[i]! >= SOLID) solid++;
     return solid > 0 ? Math.sqrt(solid) / r : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * How a picture for hiding meets the wall, measured from where the picture is in the sprite box (the same place
+ * `drawPet` puts it): the wall is the back of the picture, on the side that the art does not face (`artFacing`: 1 if
+ * the artwork faces right, -1 if it faces left), and the picture reaches from there towards the front. In box pixels
+ * at scale 1, from the feet (`anchor`, as fractions of the box). Null when it cannot be measured.
+ */
+export function measurePeek(
+  frame: Frame,
+  box: { w: number; h: number; anchorX: number; anchorY: number },
+  artFacing: 1 | -1,
+): PeekLayout | null {
+  try {
+    const r = Math.min(1, SIDE / Math.max(box.w, box.h));
+    const cw = Math.max(1, Math.round(box.w * r));
+    const ch = Math.max(1, Math.round(box.h * r));
+    const canvas = typeof OffscreenCanvas === 'function' ? new OffscreenCanvas(cw, ch) : Object.assign(document.createElement('canvas'), { width: cw, height: ch });
+    const ctx = canvas.getContext('2d', { willReadFrequently: true }) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+    if (!ctx) return null;
+    const fit = Math.min(cw / frame.width, ch / frame.height);
+    const dw = frame.width * fit;
+    const dh = frame.height * fit;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(frame.image, (cw - dw) / 2, ch - dh, dw, dh);
+    const { data } = ctx.getImageData(0, 0, cw, ch);
+    let x0 = cw;
+    let x1 = -1;
+    let y0 = ch;
+    let y1 = -1;
+    for (let y = 0; y < ch; y++) {
+      for (let x = 0; x < cw; x++) {
+        if (data[(y * cw + x) * 4 + 3]! < SOLID) continue;
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
+    }
+    if (x1 < 0) return null;
+    // box pixels (the last pixel counts whole)
+    const left = x0 / r;
+    const right = (x1 + 1) / r;
+    const top = y0 / r;
+    const bottom = (y1 + 1) / r;
+    const feet = { x: box.anchorX * box.w, y: box.anchorY * box.h };
+    const behind = artFacing === -1 ? right : left;
+    const edge = artFacing === -1 ? behind - feet.x : feet.x - behind;
+    return { edge, reach: right - left, top: feet.y - top, bottom: bottom - feet.y };
   } catch {
     return null;
   }

@@ -1,4 +1,5 @@
 import { parseActions } from '../engine/actions';
+import type { PeekLayout } from '../engine/peek';
 import { parseLines } from '../engine/speech';
 import { isSkinId } from './ids';
 import type { Battery } from './power';
@@ -13,7 +14,7 @@ const within = (v: unknown, lo: number, hi: number): number | null => (finite(v)
  */
 export function parseSkinReport(raw: unknown): SkinReport | null {
   if (!raw || typeof raw !== 'object') return null;
-  const { id, box, hitbox, body, lines, actions } = raw as Record<string, any>;
+  const { id, box, hitbox, body, peek, lines, actions } = raw as Record<string, any>;
   if (!isSkinId(id) || !box || typeof box !== 'object' || !hitbox || typeof hitbox !== 'object') return null;
   const nums = [
     within(box.w, 16, 1024),
@@ -37,7 +38,20 @@ export function parseSkinReport(raw: unknown): SkinReport | null {
   // how big the picture looks is optional: without it the stage guesses from the hitbox
   const looks = within(body, 4, 2048);
   if (looks !== null) report.body = looks;
+  const layout = parsePeek(peek);
+  if (layout) report.peek = layout;
   return report;
+}
+
+/** How a skin's own picture for hiding meets the wall: all four numbers, or none (the pet then leans its ordinary picture). */
+function parsePeek(raw: unknown): PeekLayout | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const { edge, reach, top, bottom } = raw as Record<string, unknown>;
+  const e = within(edge, 1, 2048);
+  const r = within(reach, 4, 2048);
+  const t = within(top, 4, 2048);
+  const b = within(bottom, -2048, 2048);
+  return e === null || r === null || t === null || b === null ? null : { edge: e, reach: r, top: t, bottom: b };
 }
 
 /** A mouse button going down or up in an overlay. */

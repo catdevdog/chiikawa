@@ -531,6 +531,10 @@ function exposeTestHooks(): void {
     views: () => stage.views.map(({ id, view }) => ({ id, ...view, particles: [...view.particles] })),
     /** how big each of them looks: the picture's size, the scale it is drawn at, and the two multiplied */
     sizes: () => stage.sizes,
+    /** everybody hides behind the wall (as three clicks on a pet do), and comes out again; who is hiding */
+    hideAtWall: (origin?: string) => stage.hideAtWall(origin),
+    findAll: () => stage.findAll(),
+    hiding: () => stage.hiding,
     windows: () =>
       [...overlays.values()].map((o) => ({
         id: o.displayId,

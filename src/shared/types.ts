@@ -1,3 +1,4 @@
+import type { PeekLayout } from '../engine/peek';
 import type { Actions, Lines, Mode, PetView, Rect, Roam, SpeechLevel } from '../engine/types';
 
 export interface Settings {
@@ -92,6 +93,8 @@ export interface SkinReport {
   hitbox: Rect;
   /** how big the character looks: the side of a square with the area of its picture, in box pixels (see `bodyOf`) */
   body?: number;
+  /** how the skin's own picture for hiding meets the wall (none: the pet leans its ordinary picture towards the wall) */
+  peek?: PeekLayout;
   /** what the skin says, by situation */
   lines: Lines;
   /** what the skin does now and then */

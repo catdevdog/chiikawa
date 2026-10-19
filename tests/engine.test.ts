@@ -267,18 +267,25 @@ describe('pointer interaction', () => {
     expect(pet.view.state).not.toBe('surprised');
   });
 
-  it('three quick clicks make the pet happy and spawn hearts', () => {
+  it('three quick clicks are noted once, for whoever runs the pets to answer (the pet hides with the others)', () => {
     const pet = make({ mode: 'wander' });
     pet.update(16);
+    expect(pet.takeTriple()).toBe(false);
     for (let i = 0; i < 3; i++) {
       click(pet, bodyCenter(pet));
       run(pet, 100);
     }
-    expect(pet.view.state).toBe('happy');
-    expect(pet.view.particles.some((p) => p.kind === 'heart')).toBe(true);
-    run(pet, 4000);
-    expect(pet.view.state).not.toBe('happy');
-    expect(pet.view.particles.length).toBe(0);
+    expect(pet.takeTriple()).toBe(true);
+    expect(pet.takeTriple()).toBe(false);
+    // by itself the pet does nothing about it: no happy hop and no hearts
+    expect(pet.peeking).toBe(false);
+    expect(pet.view.particles.some((p) => p.kind === 'heart')).toBe(false);
+    // and the count starts again: two more clicks are not a triple
+    for (let i = 0; i < 2; i++) {
+      click(pet, bodyCenter(pet));
+      run(pet, 100);
+    }
+    expect(pet.takeTriple()).toBe(false);
   });
 
   it('rubbing back and forth makes the pet happy', () => {
@@ -771,7 +778,7 @@ describe('speech', () => {
     expect([...seen].some((t) => t.startsWith('CLICK'))).toBe(true);
   });
 
-  it('a rub is answered, and so are three quick clicks (with hearts)', () => {
+  it('a rub is answered, and so are three quick clicks', () => {
     const rubbed = talker();
     rubbed.update(16);
     const c = bodyCenter(rubbed);
@@ -797,7 +804,6 @@ describe('speech', () => {
       }
     });
     expect(said.has('TRIPLE')).toBe(true);
-    expect(pet.view.particles.some((p) => p.kind === 'heart')).toBe(true);
   });
 
   it('says something when it is picked up, thrown and when it lands from high up', () => {
@@ -1544,5 +1550,277 @@ describe('acting', () => {
       expect(v.hitbox.x + v.hitbox.w).toBeLessThanOrEqual(1500 + 1e-6);
       expect(v.hitbox.y + v.hitbox.h).toBeLessThanOrEqual(800 + 1e-6);
     }
+  });
+});
+
+describe('hiding at a wall', () => {
+  const RIGHT = { x: W, side: 1 as const, floorY: H, y: H };
+  const LEFT = { x: 0, side: -1 as const, floorY: H, y: H };
+  const made = (opts: Partial<PetOptions> = {}) => {
+    const pet = make({ mode: 'wander', config: { roam: 'floor' }, ...opts });
+    pet.update(16);
+    return pet;
+  };
+  /** runs until the pet waits at its wall (or the time is up) */
+  const settle = (pet: Pet, ms = 12_000): void => {
+    for (let t = 0; t < ms; t += 16) {
+      pet.update(16);
+      if (pet.view.state === 'peek' && pet.view.animating === false) return;
+    }
+  };
+
+  it('runs to the wall, slips behind it and waits there with a part of its picture in view', () => {
+    const pet = made();
+    pet.hideAt(RIGHT);
+    expect(pet.peeking).toBe(true);
+    pet.update(16);
+    expect(pet.view.state).toBe('run');
+    run(pet, 800);
+    // on its way: running towards the wall, facing it
+    expect(pet.view.x).toBeGreaterThan(W / 2 + 100);
+    expect(pet.view.facing).toBe(1);
+    settle(pet);
+    expect(pet.view.state).toBe('peek');
+    // it looks back into the screen, with its picture meeting the wall (one pixel past it, so that no gap shows)
+    expect(pet.view.facing).toBe(-1);
+    const layout = pet.peekLayout;
+    expect(pet.view.x + layout.edge * pet.view.scale).toBeCloseTo(W + 1, 5);
+    const r = pet.view.hitbox;
+    expect(r.x + r.w).toBeCloseTo(W, 5);
+    expect(r.w).toBeCloseTo(layout.reach * pet.view.scale, 5);
+    expect(pet.view.y).toBe(H);
+  });
+
+  it('hides behind the left wall just the same, the other way round', () => {
+    const pet = made();
+    pet.hideAt(LEFT);
+    settle(pet);
+    expect(pet.view.state).toBe('peek');
+    expect(pet.view.facing).toBe(1);
+    const r = pet.view.hitbox;
+    expect(r.x).toBeCloseTo(0, 5);
+    expect(pet.view.x - pet.peekLayout.edge * pet.view.scale).toBeCloseTo(-1, 5);
+  });
+
+  it('waits higher up the wall when told to, slipping up it', () => {
+    const pet = made();
+    const high = { ...RIGHT, y: H - 260 };
+    pet.hideAt(high);
+    settle(pet);
+    expect(pet.view.state).toBe('peek');
+    expect(pet.view.y).toBe(H - 260);
+  });
+
+  it('ducks back behind the wall now and then, and only ever towards it', () => {
+    const pet = made();
+    pet.hideAt(RIGHT);
+    settle(pet);
+    const spot = pet.view.x;
+    let most = 0;
+    let least = 0;
+    let moving = false;
+    for (let i = 0; i < 600; i++) {
+      pet.update(16);
+      most = Math.max(most, pet.view.x - spot);
+      least = Math.min(least, pet.view.x - spot);
+      moving = moving || pet.view.animating;
+    }
+    expect(most).toBeGreaterThan(5);
+    expect(least).toBeGreaterThanOrEqual(-1e-6);
+    // while it ducks it needs smooth frames, and while it just waits it does not
+    expect(moving).toBe(true);
+    // the left wall: the other way
+    const other = made();
+    other.hideAt(LEFT);
+    settle(other);
+    const at = other.view.x;
+    let least2 = 0;
+    let most2 = 0;
+    for (let i = 0; i < 600; i++) {
+      other.update(16);
+      least2 = Math.min(least2, other.view.x - at);
+      most2 = Math.max(most2, other.view.x - at);
+    }
+    expect(least2).toBeLessThan(-5);
+    expect(most2).toBeLessThanOrEqual(1e-6);
+  });
+
+  it('takes no notice of the pointer while it hides, until it is clicked', () => {
+    const pet = made();
+    pet.hideAt(RIGHT);
+    settle(pet);
+    const r = pet.view.hitbox;
+    const on = { x: r.x + r.w / 2, y: r.y + r.h / 2 };
+    // hovering and rubbing over it do nothing
+    let x = on.x - 10;
+    let dir = 1;
+    for (let i = 0; i < 60; i++) {
+      x += dir * 8;
+      if (x > on.x + 10 || x < on.x - 10) dir = -dir;
+      pet.pointerMove({ x, y: on.y });
+      pet.update(16);
+    }
+    expect(pet.view.state).toBe('peek');
+    expect(pet.peeking).toBe(true);
+    expect(pet.takeFound()).toBe(false);
+    // a click anywhere on what is in view (the corners too: it is the face and the hands) finds it
+    expect(pet.isOver({ x: r.x + 2, y: r.y + 2 })).toBe(true);
+    expect(pet.isOver({ x: r.x - 5, y: on.y })).toBe(false);
+    click(pet, { x: r.x + 3, y: r.y + r.h - 3 });
+    expect(pet.takeFound()).toBe(true);
+    expect(pet.takeFound()).toBe(false);
+    // it is for whoever runs the pets to bring it out
+    expect(pet.peeking).toBe(true);
+  });
+
+  it('comes out when it is found, back inside the screens and pleased', () => {
+    const pet = made();
+    pet.hideAt(RIGHT);
+    settle(pet);
+    pet.unhide(true);
+    expect(pet.peeking).toBe(false);
+    run(pet, 100);
+    expect(pet.view.state).toBe('happy');
+    const hb = pet.view.hitbox;
+    expect(hb.x + hb.w).toBeLessThanOrEqual(W + 1e-6);
+    run(pet, 3000);
+    expect(pet.view.state).not.toBe('happy');
+    // and it carries on with its life
+    expect(pet.view.hitbox.x + pet.view.hitbox.w).toBeLessThanOrEqual(W + 1e-6);
+  });
+
+  it('drops to the floor from up the wall when it comes out (a pet that walks along a floor)', () => {
+    const pet = made();
+    pet.hideAt({ ...RIGHT, y: H - 300 });
+    settle(pet);
+    pet.unhide();
+    run(pet, 32);
+    expect(pet.view.state).toBe('fall');
+    run(pet, 3000);
+    expect(pet.view.y).toBe(H);
+  });
+
+  it('a pet that roams the whole screen stays where it came out', () => {
+    const pet = made({ config: { roam: 'free' } });
+    pet.hideAt({ ...RIGHT, y: H - 300 });
+    settle(pet);
+    expect(pet.view.y).toBe(H - 300);
+    pet.unhide();
+    run(pet, 100);
+    expect(pet.view.state).toBe('happy');
+    expect(pet.view.y).toBeLessThan(H - 200);
+  });
+
+  it('is picked up from the wall when it is dragged, and counts as found', () => {
+    const pet = made();
+    pet.hideAt(RIGHT);
+    settle(pet);
+    const r = pet.view.hitbox;
+    const on = { x: r.x + r.w / 2, y: r.y + r.h / 2 };
+    pet.pointerDown(on);
+    pet.pointerMove({ x: on.x - 80, y: on.y - 40 });
+    pet.update(16);
+    expect(pet.view.state).toBe('held');
+    expect(pet.peeking).toBe(false);
+    expect(pet.takeFound()).toBe(true);
+  });
+
+  it('stops hiding when it is called, when its mode changes and when the screens change', () => {
+    const called = made();
+    called.setCursor({ x: 300, y: 300 });
+    called.hideAt(RIGHT);
+    settle(called);
+    called.call();
+    expect(called.peeking).toBe(false);
+
+    const moded = made();
+    moded.hideAt(RIGHT);
+    settle(moded);
+    moded.setMode('follow');
+    expect(moded.peeking).toBe(false);
+    run(moded, 100);
+    expect(moded.view.state).not.toBe('peek');
+
+    const moved = made();
+    moved.hideAt(RIGHT);
+    settle(moved);
+    // the same screens again change nothing
+    moved.setRegion([{ x: 0, y: 0, w: W, h: H }]);
+    expect(moved.peeking).toBe(true);
+    // other screens do: the wall may be gone
+    moved.setRegion([{ x: 0, y: 0, w: W - 400, h: H }]);
+    expect(moved.peeking).toBe(false);
+    run(moved, 100);
+    const hb = moved.view.hitbox;
+    expect(hb.x + hb.w).toBeLessThanOrEqual(W - 400 + 1e-6);
+  });
+
+  it('does not do tricks, greet friends or answer the computer with a hop while it hides', () => {
+    const pet = made();
+    pet.setActions(parseActions({ wave: { pose: 'wave', say: [] } }, new Map([['wave', false]])));
+    pet.hideAt(RIGHT);
+    settle(pet);
+    expect(pet.meetable).toBe(false);
+    expect(pet.perform()).toBe(false);
+    pet.notice('plug');
+    run(pet, 100);
+    expect(pet.view.state).toBe('peek');
+  });
+
+  it('keeps its place at the wall when its size or its picture change', () => {
+    const pet = made();
+    pet.hideAt(RIGHT);
+    settle(pet);
+    pet.setScale(2, 1);
+    run(pet, 50);
+    expect(pet.view.state).toBe('peek');
+    expect(pet.view.x + pet.peekLayout.edge * 2).toBeCloseTo(W + 1, 5);
+    expect(pet.view.hitbox.x + pet.view.hitbox.w).toBeCloseTo(W, 5);
+    // a skin with a picture of its own tells the engine how it meets the wall
+    pet.setSprite({ w: 100, h: 100, anchorX: 0.5, anchorY: 0.9 }, { x: 0.1, y: 0.1, w: 0.8, h: 0.8 }, { edge: 50, reach: 40, top: 70, bottom: 5 });
+    run(pet, 50);
+    expect(pet.view.x + 50 * 2).toBeCloseTo(W + 1, 5);
+    const r = pet.view.hitbox;
+    expect(r.w).toBeCloseTo(80, 5);
+    expect(r.h).toBeCloseTo(150, 5);
+    expect(r.y).toBeCloseTo(pet.view.y - 140, 5);
+  });
+
+  it('a pet that hangs off the cursor does not hide', () => {
+    const pet = make({ mode: 'attach' });
+    pet.setCursor({ x: 400, y: 300 });
+    pet.update(16);
+    pet.hideAt(RIGHT);
+    expect(pet.peeking).toBe(false);
+  });
+
+  it('says something to itself now and then while it waits, and when it is found', () => {
+    const lines = parseLines({ peek: ['SHH'], found: ['THERE YOU ARE'], triple: ['TRIPLE'] });
+    const pet = made({ chatty: true });
+    pet.setLines(lines);
+    pet.hideAt(RIGHT);
+    const said = new Set<string>();
+    for (let t = 0; t < 40_000; t += 16) {
+      pet.update(16);
+      for (const p of pet.view.particles) if (p.kind === 'text') said.add(p.text!);
+    }
+    expect(said.has('SHH')).toBe(true);
+    pet.unhide(true);
+    for (let t = 0; t < 300; t += 16) {
+      pet.update(16);
+      for (const p of pet.view.particles) if (p.kind === 'text') said.add(p.text!);
+    }
+    expect(said.has('THERE YOU ARE')).toBe(true);
+  });
+
+  it('comes down off a window before it runs to the wall (a pet that walks along a floor)', () => {
+    const pet = made();
+    pet.setPlatforms([{ id: 'w', x0: 300, x1: 700, y: H - 200, ax: 300 }]);
+    // up on the window: a fall from the top of it
+    run(pet, 100);
+    pet.hideAt(RIGHT);
+    settle(pet);
+    expect(pet.view.state).toBe('peek');
+    expect(pet.view.y).toBe(H);
   });
 });

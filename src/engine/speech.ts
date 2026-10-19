@@ -98,6 +98,9 @@ const RULES: Record<SayEvent, Rule> = {
   // a friend was met, and answered
   meet: { chance: 1, cooldown: 20_000, urgent: true },
   reply: { chance: 1, cooldown: 20_000, urgent: true },
+  // hiding at a wall: it talks to itself now and then, and says so when it is found
+  peek: { chance: 1, cooldown: 6_000, murmur: true },
+  found: { chance: 1, cooldown: 1_000, urgent: true },
   // the user asked for the pet, or the computer did something: always answered, even over other words
   call: { chance: 1, cooldown: 1_500, urgent: true },
   // an unlock and a wake from sleep come one after the other, and a loose plug flickers

@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+<g transform="translate(-38 7) rotate(-16 64 88)">
+  <path d="M64 42 C64 34 63 27 64 21" fill="none" stroke="#4C9A62" stroke-width="3" stroke-linecap="round"/>
+  <g transform="rotate(0 64 23)">
+    <path d="M64 24 C50 8 30 14 32 28 C42 34 58 34 64 24 Z" fill="#9BDDA8" stroke="#4C9A62" stroke-width="2.2" stroke-linejoin="round"/>
+    <path d="M60 25 C53 21 46 21 39 25" fill="none" stroke="#4C9A62" stroke-width="1.5" stroke-linecap="round" opacity=".55"/>
+  </g>
+  <g transform="rotate(0 64 23)">
+    <path d="M64 24 C78 6 100 12 96 28 C86 34 70 34 64 24 Z" fill="#9BDDA8" stroke="#4C9A62" stroke-width="2.2" stroke-linejoin="round"/>
+    <path d="M68 25 C76 21 84 21 91 25" fill="none" stroke="#4C9A62" stroke-width="1.5" stroke-linecap="round" opacity=".55"/>
+  </g>
+  <path d="M64 38 C92 38 106 58 106 80 C106 100 90 112 64 112 C38 112 22 100 22 80 C22 58 36 38 64 38 Z" fill="#FFF1BE" stroke="#C99A3B" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M29 92 C37 106 51 110 64 110 C77 110 91 106 99 92 C93 101 79 105 64 105 C49 105 35 101 29 92 Z" fill="#FFE08F" opacity=".75"/>
+  <path d="M40 52 C45 46 52 43 58 43" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" opacity=".7"/>
+  <ellipse cx="39" cy="87" rx="7" ry="4.2" fill="#FF9FA8" opacity="0.75"/>
+  <ellipse cx="89" cy="87" rx="7" ry="4.2" fill="#FF9FA8" opacity="0.75"/>
+  <ellipse cx="50" cy="75" rx="4.6" ry="6.4" fill="#3A2E2A"/><circle cx="48.6" cy="72.2" r="1.8" fill="#fff"/>
+  <ellipse cx="78" cy="75" rx="4.6" ry="6.4" fill="#3A2E2A"/><circle cx="76.6" cy="72.2" r="1.8" fill="#fff"/>
+  <path d="M59 86 Q64 91.5 69 86" fill="none" stroke="#3A2E2A" stroke-width="2.4" stroke-linecap="round"/>
+</g>
+<!-- the hands on the edge: three fingertips curled over it, twice -->
+<g id="hand-top">
+  <g fill="#C99A3B">
+    <ellipse cx="0" cy="40" rx="13.5" ry="7.7"/><ellipse cx="0" cy="49" rx="13.5" ry="7.7"/><ellipse cx="0" cy="58" rx="13.5" ry="7.7"/>
+  </g>
+  <g fill="#FFE9A6">
+    <ellipse cx="0" cy="40" rx="11" ry="5.2"/><ellipse cx="0" cy="49" rx="11" ry="5.2"/><ellipse cx="0" cy="58" rx="11" ry="5.2"/>
+  </g>
+  <path d="M1.5 44.5 H8.5 M1.5 53.5 H8.5" stroke="#C99A3B" stroke-width="1.5" stroke-linecap="round"/>
+</g>
+<use href="#hand-top" transform="translate(0 60)"/>
+</svg>

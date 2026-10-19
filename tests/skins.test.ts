@@ -110,6 +110,17 @@ describe('bundled skins', () => {
         }
       });
 
+      it('has a picture of its own for hiding at a wall (a tilted face and the hands), and its sheet has all of its frames', () => {
+        const manifest = parseManifest(JSON.parse(readFileSync(path.join(dir, 'manifest.json'), 'utf8')), id);
+        const peek = manifest.poses.peek;
+        expect(peek, `${id}: poses.peek`).toBeTruthy();
+        if (typeof peek === 'object') {
+          const idle = manifest.poses.idle;
+          // it moves like the ordinary picture does (it blinks when that blinks)
+          if (typeof idle === 'object') expect(peek.count, `${id}: peek frames`).toBe(idle.count);
+        }
+      });
+
       it('never calls anybody by name', () => {
         const raw = JSON.parse(readFileSync(path.join(dir, 'manifest.json'), 'utf8'));
         const said: string[] = Object.values<unknown[]>(raw.lines ?? {})

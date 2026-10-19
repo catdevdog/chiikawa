@@ -1,3 +1,5 @@
+import type { PeekLayout } from './peek';
+
 export interface Vec2 {
   x: number;
   y: number;
@@ -25,6 +27,8 @@ export type PetState =
   | 'land'
   | 'surprised'
   | 'happy'
+  /** hiding at a wall with only a part of the face and the hands showing, waiting to be found */
+  | 'peek'
   /** doing one of the skin's actions (a short show with a picture of its own); not a pose a skin maps by state */
   | 'act';
 
@@ -42,6 +46,7 @@ export const PET_STATES: readonly PoseState[] = [
   'land',
   'surprised',
   'happy',
+  'peek',
 ];
 
 export type ParticleKind = 'heart' | 'z' | 'text';
@@ -93,7 +98,9 @@ export type SayEvent =
   | 'unplug'
   | 'lowBattery'
   | 'meet'
-  | 'reply';
+  | 'reply'
+  | 'peek'
+  | 'found';
 
 /** What happens on the computer that the pet notices: the user is back, the charger goes in or out, the battery runs low. */
 export type NoticeEvent = 'welcome' | 'plug' | 'unplug' | 'lowBattery';
@@ -148,6 +155,8 @@ export const SAY_EVENTS: readonly SayEvent[] = [
   'lowBattery',
   'meet',
   'reply',
+  'peek',
+  'found',
 ];
 
 export interface Line {
@@ -198,6 +207,8 @@ export interface PetConfig {
   scale: number;
   /** the scale of the words above the pet, when it differs from the pet's own */
   textScale?: number;
+  /** what the skin's picture for hiding looks like (without one, the ordinary picture peeks: see `defaultPeek`) */
+  peek?: PeekLayout;
   roam: Roam;
   walkSpeed: number;
   runSpeed: number;

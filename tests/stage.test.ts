@@ -918,6 +918,225 @@ describe('friends', () => {
   });
 });
 
+describe('hiding together', () => {
+  const WORDS = (id: string, over: Partial<SkinReport> = {}): SkinReport => ({
+    ...GEOMETRY,
+    id,
+    lines: { found: [{ text: `FOUND ${id}`, style: 'hold' }], peek: [{ text: `PEEK ${id}`, style: 'hold' }] },
+    ...over,
+  });
+  /** a stage whose main character is `main`, with its friends, all with their skins up */
+  function crowd(main: string, friends: string[], areas: Area[] = [LEFT], over: Partial<Settings> = {}) {
+    const settings: Settings = { ...SETTINGS, skin: main, friends, ...over };
+    const t = setup(areas, settings);
+    t.stage.setSkin(WORDS(main));
+    for (const id of friends) t.stage.setSkin(WORDS(id));
+    return { ...t, settings };
+  }
+  type Crowd = ReturnType<typeof crowd>;
+  const viewOf = (t: Crowd, id: string) => t.stage.views.find((v) => v.id === id)!.view;
+  const spotOf = (t: Crowd, id: string): Vec2 => {
+    const r = viewOf(t, id).hitbox;
+    return { x: r.x + r.w / 2, y: r.y + r.h / 2 };
+  };
+  const tripleClick = (t: Crowd, id: string): void => {
+    for (let i = 0; i < 3; i++) {
+      const at = spotOf(t, id);
+      const win = t.wins.find((w) => at.x >= w.area.x && at.x < w.area.x + w.area.width) ?? t.wins[0]!;
+      t.press(win, at);
+      t.release(win, at);
+      t.run(100);
+    }
+  };
+  const states = (t: Crowd): Record<string, string> => Object.fromEntries(t.stage.views.map((v) => [v.id, v.view.state]));
+  const hidden = (t: Crowd): boolean => t.stage.views.every((v) => v.view.state === 'peek');
+  const words = (t: Crowd, id: string): string[] => viewOf(t, id).particles.filter((p) => p.kind === 'text').map((p) => p.text!);
+
+  it('sends everyone to the wall, each to a place of its own up it, when a pet is clicked three times', () => {
+    const t = crowd('chiikawa', ['hachiware', 'usagi']);
+    t.run(300);
+    tripleClick(t, 'chiikawa');
+    expect(t.stage.hiding).toEqual(['chiikawa', 'hachiware', 'usagi']);
+    t.run(9000);
+    expect(hidden(t)).toBe(true);
+    // the middle is the right half: the right wall, and all of them look back into the screen
+    for (const v of t.stage.views) {
+      expect(v.view.facing).toBe(-1);
+      const r = v.view.hitbox;
+      expect(r.x + r.w).toBeCloseTo(LEFT.width, 3);
+    }
+    // the nearest one stands on the floor, the others are higher up the wall, and none is on another
+    const ys = t.stage.views.map((v) => Math.round(v.view.y));
+    expect(new Set(ys).size).toBe(3);
+    expect(Math.max(...ys)).toBe(LEFT.height);
+    const rects = t.stage.views.map((v) => v.view.hitbox).sort((a, b) => a.y - b.y);
+    for (let i = 1; i < rects.length; i++) expect(rects[i]!.y).toBeGreaterThanOrEqual(rects[i - 1]!.y + rects[i - 1]!.h - 1e-6);
+  });
+
+  it('goes to the left wall when the pet that was clicked is on the left half', () => {
+    const t = crowd('chiikawa', ['hachiware'], [LEFT, RIGHT]);
+    t.run(300);
+    // the screens are 2304 wide: the main character starts on the first one, left of the middle
+    expect(viewOf(t, 'chiikawa').x).toBeLessThan(1152);
+    tripleClick(t, 'chiikawa');
+    t.run(14_000);
+    expect(hidden(t)).toBe(true);
+    for (const v of t.stage.views) {
+      expect(v.view.facing).toBe(1);
+      expect(v.view.hitbox.x).toBeCloseTo(0, 3);
+    }
+  });
+
+  it('goes to the outer edge of all the screens (not the edge between two of them)', () => {
+    const t = crowd('chiikawa', ['hachiware'], [LEFT, RIGHT]);
+    t.run(300);
+    // the pets are brought over to the second screen first
+    t.env.cursor = { x: 2000, y: 400 };
+    t.stage.call();
+    t.run(14_000);
+    expect(viewOf(t, 'chiikawa').x).toBeGreaterThan(1500);
+    tripleClick(t, 'chiikawa');
+    t.run(14_000);
+    expect(hidden(t)).toBe(true);
+    for (const v of t.stage.views) {
+      const r = v.view.hitbox;
+      expect(r.x + r.w).toBeCloseTo(RIGHT.x + RIGHT.width, 3);
+      // the floor of the screen that has the wall (it is lower than the other one)
+      expect(v.view.y).toBeLessThanOrEqual(RIGHT.height);
+    }
+    expect(Math.max(...t.stage.views.map((v) => v.view.y))).toBe(RIGHT.height);
+  });
+
+  it('shows the window of that monitor the pets at the wall, and the mouse only goes to them where something of them shows', () => {
+    const t = crowd('chiikawa', ['hachiware']);
+    t.run(300);
+    tripleClick(t, 'chiikawa');
+    t.run(9000);
+    expect(t.wins[0]!.lastList.map((f) => f.view.state)).toEqual(['peek', 'peek']);
+    const r = viewOf(t, 'hachiware').hitbox;
+    // the window takes the mouse on the part in view, and lets it through beside it
+    t.env.cursor = { x: r.x + r.w / 2, y: r.y + r.h / 2 };
+    t.run(48);
+    expect(t.wins[0]!.ignoring).toBe(false);
+    t.env.cursor = { x: r.x - 40, y: r.y + r.h / 2 };
+    t.run(48);
+    expect(t.wins[0]!.ignoring).toBe(true);
+  });
+
+  it('brings everyone out when a pet that hides is clicked, and the one that was found says so', () => {
+    const t = crowd('chiikawa', ['hachiware', 'usagi']);
+    t.run(300);
+    tripleClick(t, 'chiikawa');
+    t.run(9000);
+    expect(hidden(t)).toBe(true);
+    const at = spotOf(t, 'hachiware');
+    t.press(t.wins[0]!, at);
+    t.release(t.wins[0]!, at);
+    expect(t.stage.hiding).toEqual([]);
+    t.run(64);
+    expect(Object.values(states(t))).not.toContain('peek');
+    expect(words(t, 'hachiware')).toContain('FOUND hachiware');
+    expect(words(t, 'chiikawa')).not.toContain('FOUND chiikawa');
+    expect(words(t, 'usagi')).not.toContain('FOUND usagi');
+    // and they go on with their lives, inside the screens
+    t.run(6000);
+    for (const v of t.stage.views) {
+      const r = v.view.hitbox;
+      expect(r.x + r.w).toBeLessThanOrEqual(LEFT.width + 1e-6);
+    }
+  });
+
+  it('brings everyone out when one that hides is picked up', () => {
+    const t = crowd('chiikawa', ['hachiware']);
+    t.run(300);
+    tripleClick(t, 'chiikawa');
+    t.run(9000);
+    const at = spotOf(t, 'chiikawa');
+    t.press(t.wins[0]!, at);
+    t.drag(at, { x: at.x - 200, y: at.y - 60 });
+    expect(t.stage.hiding).toEqual([]);
+    expect(states(t).chiikawa).toBe('held');
+    t.release(t.wins[0]!, { x: at.x - 200, y: at.y - 60 });
+    t.run(200);
+    expect(states(t).hachiware).not.toBe('peek');
+  });
+
+  it('stops hiding when the pets are called', () => {
+    const t = crowd('chiikawa', ['hachiware']);
+    t.run(300);
+    tripleClick(t, 'chiikawa');
+    t.run(9000);
+    t.env.cursor = { x: 400, y: 300 };
+    t.stage.call();
+    expect(t.stage.hiding).toEqual([]);
+    t.run(14_000);
+    expect(Object.values(states(t))).not.toContain('peek');
+  });
+
+  it('leaves the pets hiding where they were when they are put away and brought back', () => {
+    const t = crowd('chiikawa', ['hachiware']);
+    t.run(300);
+    tripleClick(t, 'chiikawa');
+    t.run(9000);
+    t.stage.setHidden(true);
+    t.run(500);
+    t.stage.setHidden(false);
+    t.run(200);
+    expect(t.stage.hiding).toEqual(['chiikawa', 'hachiware']);
+    expect(hidden(t)).toBe(true);
+  });
+
+  it('stops hiding when the screens change (the wall may be gone)', () => {
+    const t = crowd('chiikawa', ['hachiware'], [LEFT, RIGHT]);
+    t.run(300);
+    tripleClick(t, 'chiikawa');
+    t.run(14_000);
+    expect(t.stage.hiding.length).toBe(2);
+    t.stage.setWindows([t.wins[0]!]);
+    expect(t.stage.hiding).toEqual([]);
+    t.run(300);
+    for (const v of t.stage.views) {
+      const r = v.view.hitbox;
+      expect(r.x + r.w).toBeLessThanOrEqual(LEFT.width + 1e-6);
+    }
+  });
+
+  it('leaves a pet that hangs off the cursor alone, and the others hide', () => {
+    const t = crowd('chiikawa', ['hachiware'], [LEFT], { mode: 'attach' });
+    t.env.cursor = { x: 300, y: 300 };
+    t.run(800);
+    // the main character cannot be clicked; the friend can
+    tripleClick(t, 'hachiware');
+    expect(t.stage.hiding).toEqual(['hachiware']);
+    t.run(9000);
+    expect(states(t)).toEqual({ chiikawa: 'held', hachiware: 'peek' });
+  });
+
+  it('can be told to hide from outside (the tray, a test) and comes out when found', () => {
+    const t = crowd('chiikawa', ['hachiware']);
+    t.run(300);
+    expect(t.stage.hideAtWall()).toBe(true);
+    t.run(9000);
+    expect(hidden(t)).toBe(true);
+    t.stage.findAll();
+    expect(t.stage.hiding).toEqual([]);
+    t.stage.setHidden(true);
+    expect(t.stage.hideAtWall()).toBe(false);
+  });
+
+  it('talks to itself now and then while it hides', () => {
+    const t = crowd('chiikawa', []);
+    t.run(300);
+    tripleClick(t, 'chiikawa');
+    const said = new Set<string>();
+    for (let i = 0; i < 4000; i++) {
+      t.run(16);
+      for (const w of words(t, 'chiikawa')) said.add(w);
+    }
+    expect(said.has('PEEK chiikawa')).toBe(true);
+  });
+});
+
 describe('windows to sit on', () => {
   const TOP: Platform = { id: 'w', x0: 300, x1: 900, y: 400, ax: 300 };
 

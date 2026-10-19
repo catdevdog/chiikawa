@@ -24,7 +24,8 @@
     "sleep": "sleep.svg",
     "held": "held.svg",
     "wave": "wave.svg",
-    "snack": "snack.svg"
+    "snack": "snack.svg",
+    "peek": "peek.svg"
   },
   "textColor": "#3f8f4a",
   "lines": {
@@ -115,6 +116,17 @@
       "안녕~!",
       "나도 반가워!",
       "에헤헤~"
+    ],
+    "peek": [
+      "쉿…",
+      "어디게~?",
+      "히히…",
+      "두근두근!"
+    ],
+    "found": [
+      "들켰다!",
+      "앗, 들켰네!",
+      "히히!"
     ]
   },
   "actions": {

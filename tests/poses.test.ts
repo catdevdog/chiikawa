@@ -23,8 +23,15 @@ describe('resolvePose', () => {
     expect(resolvePose('sit', has('idle'), { sit: 'sleep' })).toBe('idle');
   });
 
+  it('uses the picture for hiding when the skin has one, and the ordinary picture when it has not', () => {
+    expect(resolvePose('peek', has('idle', 'peek'))).toBe('peek');
+    expect(resolvePose('peek', has('idle', 'sleep'))).toBe('idle');
+    // a skin may also say which of its pictures is the one
+    expect(resolvePose('peek', has('idle', 'sleep'), { peek: 'sleep' })).toBe('sleep');
+  });
+
   it('always resolves every state when idle exists', () => {
-    const states: PetState[] = ['idle', 'walk', 'run', 'sit', 'sleep', 'held', 'fall', 'land', 'surprised', 'happy'];
+    const states: PetState[] = ['idle', 'walk', 'run', 'sit', 'sleep', 'held', 'fall', 'land', 'surprised', 'happy', 'peek'];
     for (const s of states) expect(resolvePose(s, has('idle'))).toBe('idle');
   });
 });
