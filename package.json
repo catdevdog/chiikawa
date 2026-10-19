@@ -1,6 +1,6 @@
 {
   "name": "desktop-buddy",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "description": "Windows desktop pet: wanders the screen, sticks to your mouse, and reacts to it.",
   "private": true,
   "type": "module",
