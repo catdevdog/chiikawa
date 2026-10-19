@@ -1,5 +1,5 @@
 import type { Mode, Roam, Vec2 } from '../engine/types';
-import { DEFAULT_SETTINGS, type Area, type InitInfo, type PointerReport, type Settings, type SkinGeometry, type SkinInfo, type ViewFrame } from '../shared/types';
+import { DEFAULT_SETTINGS, type Area, type InitInfo, type PointerReport, type Settings, type SkinInfo, type SkinReport, type ViewFrame } from '../shared/types';
 
 /**
  * Everything the renderer needs from its surroundings. In Electron the pet is simulated by the main process and
@@ -20,8 +20,8 @@ export interface Host {
   onCursor(cb: (p: Vec2) => void): void;
   /** Electron: a mouse button went down or up on the pet */
   pointer(report: PointerReport): void;
-  /** Electron: the main process needs the size of the skin on screen to simulate the pet */
-  reportSkin(geometry: SkinGeometry): void;
+  /** Electron: the main process needs the size and the lines of the skin on screen to simulate the pet */
+  reportSkin(skin: SkinReport): void;
   log(level: 'info' | 'warn' | 'error', message: string): void;
   /** harness only: the on-page controls change settings through this */
   patchSettings?(patch: Partial<Settings>): void;

@@ -1,4 +1,4 @@
-import type { Mode, Roam } from '../engine/types';
+import { SPEECH_LEVELS, type Mode, type Roam, type SpeechLevel } from '../engine/types';
 import { isMonitorChoice } from './displays';
 import { isSkinId } from './ids';
 import { DEFAULT_SETTINGS, type Settings } from './types';
@@ -20,5 +20,6 @@ export function sanitizeSettings(raw: unknown): Settings {
     clickThrough: r.clickThrough === true,
     autoStart: r.autoStart === true,
     monitor: isMonitorChoice(r.monitor) ? r.monitor : d.monitor,
+    speech: SPEECH_LEVELS.includes(r.speech as SpeechLevel) ? (r.speech as SpeechLevel) : d.speech,
   };
 }

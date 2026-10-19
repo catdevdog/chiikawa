@@ -1,4 +1,5 @@
-import { DEFAULT_CONFIG, PET_STATES, type PetState, type Rect } from '../engine/types.ts';
+import { parseLines } from '../engine/speech.ts';
+import { DEFAULT_CONFIG, PET_STATES, type Lines, type PetState, type Rect } from '../engine/types.ts';
 
 /** A pose stored as a sprite sheet: frames laid out left to right, top to bottom. */
 export interface SheetPose {
@@ -29,6 +30,10 @@ export interface SkinManifest {
   states?: Partial<Record<PetState, string>>;
   /** states whose artwork already moves: the engine's hop and squash is skipped for them */
   motion?: Partial<Record<PetState, 'auto' | 'off'>>;
+  /** what the pet says, by situation: `{ "click": ["하아?", { "text": "...", "style": "hold" }] }` */
+  lines?: Lines;
+  /** colour of the words, "#rrggbb" */
+  textColor?: string;
 }
 
 const num = (v: unknown, fallback: number, min: number, max: number): number =>
@@ -85,6 +90,8 @@ export function parseManifest(raw: unknown, id: string): SkinManifest {
     poses,
     states,
     motion,
+    lines: parseLines(m.lines),
+    textColor: typeof m.textColor === 'string' && /^#[0-9a-f]{6}$/i.test(m.textColor) ? m.textColor : undefined,
   };
 }
 

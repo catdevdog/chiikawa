@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { isSkinId } from '../src/shared/ids';
 import { sanitizeSettings } from '../src/shared/sanitize';
 import { DEFAULT_SETTINGS } from '../src/shared/types';
-import { parseGeometry, parsePointer } from '../src/shared/validate';
+import { parsePointer, parseSkinReport } from '../src/shared/validate';
 import { safeJoin } from '../src/shell/safe-path';
 
 describe('safeJoin', () => {
@@ -47,9 +47,14 @@ describe('sanitizeSettings', () => {
   });
 
   it('keeps valid values and clamps the scale', () => {
-    const s = sanitizeSettings({ mode: 'attach', roam: 'floor', skin: 'my-skin', scale: 99, clickThrough: true, autoStart: true, monitor: '2528732444' });
-    expect(s).toEqual({ mode: 'attach', roam: 'floor', skin: 'my-skin', scale: 4, clickThrough: true, autoStart: true, monitor: '2528732444' });
+    const s = sanitizeSettings({ mode: 'attach', roam: 'floor', skin: 'my-skin', scale: 99, clickThrough: true, autoStart: true, monitor: '2528732444', speech: 'reactions' });
+    expect(s).toEqual({ mode: 'attach', roam: 'floor', skin: 'my-skin', scale: 4, clickThrough: true, autoStart: true, monitor: '2528732444', speech: 'reactions' });
     expect(sanitizeSettings({ scale: 0.01 }).scale).toBe(0.25);
+  });
+
+  it('accepts the three speech levels and nothing else', () => {
+    for (const speech of ['all', 'reactions', 'off']) expect(sanitizeSettings({ speech }).speech).toBe(speech);
+    for (const speech of ['loud', '', 1, null, true]) expect(sanitizeSettings({ speech }).speech).toBe(DEFAULT_SETTINGS.speech);
   });
 
   it('accepts a monitor choice of all, primary or a numeric id and nothing else', () => {
@@ -61,22 +66,36 @@ describe('sanitizeSettings', () => {
 });
 
 describe('what an overlay may report', () => {
-  const geometry = { box: { w: 128, h: 140, anchorX: 0.5, anchorY: 0.94 }, hitbox: { x: 0.18, y: 0.22, w: 0.64, h: 0.72 } };
+  const report = { box: { w: 128, h: 140, anchorX: 0.5, anchorY: 0.94 }, hitbox: { x: 0.18, y: 0.22, w: 0.64, h: 0.72 } };
 
-  it('accepts a skin geometry and keeps its numbers', () => {
-    expect(parseGeometry(geometry)).toEqual(geometry);
+  it('accepts a skin report and keeps its numbers', () => {
+    expect(parseSkinReport(report)).toEqual({ ...report, lines: {} });
   });
 
   it('pulls numbers that are out of range back into it', () => {
-    const g = parseGeometry({ box: { w: 99999, h: 1, anchorX: -3, anchorY: 4 }, hitbox: { x: 2, y: -1, w: 0, h: 9 } })!;
+    const g = parseSkinReport({ box: { w: 99999, h: 1, anchorX: -3, anchorY: 4 }, hitbox: { x: 2, y: -1, w: 0, h: 9 } })!;
     expect(g.box).toEqual({ w: 1024, h: 16, anchorX: 0, anchorY: 1 });
     expect(g.hitbox).toEqual({ x: 1, y: 0, w: 0.05, h: 1 });
   });
 
   it('refuses anything that is not numbers', () => {
-    for (const bad of [null, 5, 'x', {}, { box: {}, hitbox: {} }, { ...geometry, box: { ...geometry.box, w: NaN } }, { ...geometry, hitbox: { ...geometry.hitbox, x: '0' } }, { box: geometry.box }]) {
-      expect(parseGeometry(bad)).toBeNull();
+    for (const bad of [null, 5, 'x', {}, { box: {}, hitbox: {} }, { ...report, box: { ...report.box, w: NaN } }, { ...report, hitbox: { ...report.hitbox, x: '0' } }, { box: report.box }]) {
+      expect(parseSkinReport(bad)).toBeNull();
     }
+  });
+
+  it('carries the lines of the skin, cleaned up', () => {
+    const g = parseSkinReport({ ...report, lines: { click: ['하아?', '', 7, { text: '세 번이나… 놀자는 거야!?' }], dance: ['x'] } })!;
+    expect(g.lines).toEqual({
+      click: [
+        { text: '하아?', style: 'float' },
+        { text: '세 번이나… 놀자는 거야!?', style: 'hold' },
+      ],
+    });
+  });
+
+  it('bad lines do not spoil an otherwise good report', () => {
+    for (const lines of ['click', 5, null, [], { click: 'nope' }]) expect(parseSkinReport({ ...report, lines })!.lines).toEqual({});
   });
 
   it('accepts a button going down or up at a finite point', () => {

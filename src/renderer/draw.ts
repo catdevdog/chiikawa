@@ -21,7 +21,7 @@ export function drawScene(ctx: CanvasRenderingContext2D, v: PetView, skin: Skin,
   ctx.translate(-view.x, -view.y);
   drawShadow(ctx, v, skin);
   drawPet(ctx, v, skin);
-  drawParticles(ctx, v.particles);
+  drawParticles(ctx, v.particles, skin.textColor);
   if (opts.debug) drawDebug(ctx, v);
   ctx.restore();
 }
@@ -71,8 +71,12 @@ function drawPet(ctx: CanvasRenderingContext2D, v: PetView, skin: Skin): void {
   ctx.restore();
 }
 
-function drawParticles(ctx: CanvasRenderingContext2D, particles: readonly Particle[]): void {
+function drawParticles(ctx: CanvasRenderingContext2D, particles: readonly Particle[], textColor: string): void {
   for (const p of particles) {
+    if (p.kind === 'text') {
+      drawWords(ctx, p, textColor);
+      continue;
+    }
     const life = p.age / p.life;
     ctx.save();
     ctx.globalAlpha = Math.max(0, Math.min(1, (1 - life) * 1.6));
@@ -80,6 +84,36 @@ function drawParticles(ctx: CanvasRenderingContext2D, particles: readonly Partic
     else drawZ(ctx, p.x, p.y, 12 + life * 10);
     ctx.restore();
   }
+}
+
+/** Korean first (Windows ships Malgun Gothic), then the usual fonts of the other systems. */
+const WORDS_FONT = '"Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", "Noto Sans CJK KR", "Segoe UI", system-ui, sans-serif';
+
+/**
+ * What the pet says, drawn like the z's and hearts: coloured letters with a white outline, no bubble. Sounds swell a
+ * little as they rise and fade over the second half; a sentence pops in, stays, and fades at the end.
+ */
+function drawWords(ctx: CanvasRenderingContext2D, p: Particle, color: string): void {
+  if (!p.text) return;
+  const life = Math.max(0, Math.min(1, p.age / p.life));
+  const held = p.style === 'hold';
+  const alpha = Math.min(1, p.age / 140, (1 - life) / (held ? 0.2 : 0.5));
+  if (alpha <= 0) return;
+  const base = p.size ?? 16;
+  const pop = 1 - (1 - Math.min(1, p.age / 180)) ** 3;
+  const size = held ? base * (0.88 + 0.12 * pop) : base * (1 + life * 0.3);
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.font = `bold ${size}px ${WORDS_FONT}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = Math.max(3, size * 0.3);
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.96)';
+  ctx.fillStyle = color;
+  ctx.strokeText(p.text, p.x, p.y);
+  ctx.fillText(p.text, p.x, p.y);
+  ctx.restore();
 }
 
 function drawHeart(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {

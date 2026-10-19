@@ -15,10 +15,10 @@ import {
 } from 'electron';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { Mode, Roam } from '../engine/types';
+import type { Mode, Roam, SayEvent, SpeechLevel } from '../engine/types';
 import { chooseDisplays, MONITOR_ALL, MONITOR_PRIMARY, parseFakeDisplays, type DisplayInfo } from '../shared/displays';
 import { DEFAULT_SETTINGS, IPC, type InitInfo, type Settings } from '../shared/types';
-import { parseGeometry, parsePointer } from '../shared/validate';
+import { parsePointer, parseSkinReport } from '../shared/validate';
 import { readDisplays, setFakeDisplays } from './displays';
 import { t } from './i18n';
 import { log } from './log';
@@ -54,7 +54,7 @@ let settings: Settings = { ...DEFAULT_SETTINGS };
 /** one overlay per monitor the pet lives on, by display id */
 const overlays = new Map<number, Overlay>();
 let stage: Stage;
-let lastGeometry = '';
+let lastSkin = '';
 
 /** The overlay window an IPC message came from; anything else (the skin maker, a stray frame) is refused. */
 function overlayOf(e: IpcMainEvent | IpcMainInvokeEvent): Overlay | undefined {
@@ -170,14 +170,14 @@ function registerIpc(): void {
     const report = parsePointer(raw);
     if (o && report) stage.pointer(o, report);
   });
-  ipcMain.on(IPC.skinGeometry, (e, raw: unknown) => {
-    const g = overlayOf(e) && parseGeometry(raw);
-    if (!g) return;
+  ipcMain.on(IPC.skin, (e, raw: unknown) => {
+    const skin = overlayOf(e) && parseSkinReport(raw);
+    if (!skin) return;
     // every overlay reports the skin it loaded; the pet only needs to hear about a change
-    const key = JSON.stringify(g);
-    if (key === lastGeometry) return;
-    lastGeometry = key;
-    stage.setSkin(g);
+    const key = JSON.stringify(skin);
+    if (key === lastSkin) return;
+    lastSkin = key;
+    stage.setSkin(skin);
   });
   ipcMain.on(IPC.log, (e, level: unknown, message: unknown) => {
     if (!overlayOf(e)) return;
@@ -270,6 +270,14 @@ async function rebuildMenu(): Promise<void> {
       },
       ...monitors,
       {
+        label: s.speech,
+        submenu: [
+          radio<SpeechLevel>(s.speechAll, 'all', settings.speech, (speech) => update({ speech })),
+          radio<SpeechLevel>(s.speechReactions, 'reactions', settings.speech, (speech) => update({ speech })),
+          radio<SpeechLevel>(s.speechOff, 'off', settings.speech, (speech) => update({ speech })),
+        ],
+      },
+      {
         label: s.skin,
         submenu: [
           ...skins.map((sk) => radio(sk.name, sk.id, settings.skin, (skin) => update({ skin }))),
@@ -306,6 +314,7 @@ function exposeTestHooks(): void {
     },
     settings: () => settings,
     update: (patch: Partial<Settings>) => update(patch),
+    say: (event: SayEvent) => stage.say(event),
     view: () => (stage.view ? { ...stage.view, particles: [...stage.view.particles] } : null),
     windows: () =>
       [...overlays.values()].map((o) => ({

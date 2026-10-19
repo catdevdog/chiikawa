@@ -1,6 +1,6 @@
 import type { Vec2 } from '../engine/types';
 import type { SkinPayload } from '../shared/skin-payload';
-import type { Area, InitInfo, PointerReport, Settings, SkinGeometry, ViewFrame } from '../shared/types';
+import type { Area, InitInfo, PointerReport, Settings, SkinReport, ViewFrame } from '../shared/types';
 
 /** Surface exposed by the Electron preload script. Absent when running in a plain browser. */
 export interface BuddyHostApi {
@@ -10,7 +10,7 @@ export interface BuddyHostApi {
   onView(cb: (frame: ViewFrame | null) => void): void;
   onReloadSkin(cb: () => void): void;
   pointer(report: PointerReport): void;
-  reportSkin(geometry: SkinGeometry): void;
+  reportSkin(skin: SkinReport): void;
   log(level: 'info' | 'warn' | 'error', message: string): void;
 }
 

@@ -1,5 +1,5 @@
 import { Pet } from '../engine';
-import { DEFAULT_SETTINGS, type Area, type Settings, type SkinGeometry } from '../shared/types';
+import { DEFAULT_SETTINGS, type Area, type Settings, type SkinReport } from '../shared/types';
 import { drawScene, type Viewport } from './draw';
 import { mountHarness } from './harness';
 import { pickHost } from './host';
@@ -23,7 +23,7 @@ async function loadSkinOrDefault(id: string): Promise<Skin> {
   }
 }
 
-const geometryOf = (skin: Skin): SkinGeometry => ({ box: { ...skin.box }, hitbox: { ...skin.hitbox } });
+const reportOf = (skin: Skin): SkinReport => ({ box: { ...skin.box }, hitbox: { ...skin.hitbox }, lines: skin.lines });
 
 /**
  * In Electron this window only draws: the main process simulates the pet for all monitors and sends what to
@@ -62,8 +62,9 @@ async function start(): Promise<void> {
     const next = await loadSkinOrDefault(id);
     if (seq !== skinSeq) return;
     skin = next;
-    host.reportSkin(geometryOf(next));
+    host.reportSkin(reportOf(next));
     pet?.setSprite(next.box, next.hitbox);
+    pet?.setLines(next.lines);
     lastDraw = 0;
   };
   await loadSkinNow(settings.skin);
@@ -74,6 +75,8 @@ async function start(): Promise<void> {
     ? new Pet({
         world: { width: innerWidth, height: innerHeight },
         mode: settings.mode,
+        // test-page knob: every situation speaks, and often
+        chatty: query.get('chatty') === '1',
         config: {
           scale: settings.scale,
           roam: settings.roam,
@@ -84,6 +87,8 @@ async function start(): Promise<void> {
       })
     : null;
   pet?.setInteractive(!settings.clickThrough);
+  pet?.setSpeech(settings.speech);
+  pet?.setLines(skin!.lines);
 
   const layout = (): void => {
     view.width = innerWidth;
@@ -115,6 +120,7 @@ async function start(): Promise<void> {
       pet.setMode(next.mode);
       pet.setScale(next.scale);
       pet.setRoam(next.roam);
+      pet.setSpeech(next.speech);
       pet.setInteractive(!next.clickThrough);
     }
     if (next.skin !== prev.skin) await loadSkinNow(next.skin);

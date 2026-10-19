@@ -59,6 +59,31 @@ describe('parseManifest', () => {
   });
 });
 
+describe('lines in a manifest', () => {
+  const base = { poses: { idle: 'idle.png' } };
+
+  it('reads what the pet says, by situation', () => {
+    const m = parseManifest({ ...base, lines: { click: ['하아?', { text: '오늘도 어떻게든 돼!', style: 'hold' }], sleep: ['쥬르리…'] } }, 'x');
+    expect(m.lines).toEqual({
+      click: [
+        { text: '하아?', style: 'float' },
+        { text: '오늘도 어떻게든 돼!', style: 'hold' },
+      ],
+      sleep: [{ text: '쥬르리…', style: 'float' }],
+    });
+  });
+
+  it('is empty without lines, and ignores lines that are not an object', () => {
+    expect(parseManifest(base, 'x').lines).toEqual({});
+    expect(parseManifest({ ...base, lines: 'hi' }, 'x').lines).toEqual({});
+  });
+
+  it('takes a text colour only as #rrggbb', () => {
+    expect(parseManifest({ ...base, textColor: '#d4891a' }, 'x').textColor).toBe('#d4891a');
+    for (const bad of ['red', '#fff', '#12345g', 5, null, 'url(x)']) expect(parseManifest({ ...base, textColor: bad }, 'x').textColor).toBeUndefined();
+  });
+});
+
 describe('poseFiles', () => {
   it('lists each referenced file once', () => {
     const m = parseManifest(

@@ -28,7 +28,7 @@ import { validateSkinPayload } from '../shared/skin-payload';
 import { drawScene } from './draw';
 import { decodeFile, pickMakerHost, rasterToBitmap, rasterToPng, toImageData } from './maker-io';
 import { resolvePose } from './poses';
-import { Sprite, type Skin } from './skin';
+import { DEFAULT_TEXT_COLOR, Sprite, type Skin } from './skin';
 
 const POSE_LABELS: Record<PetState, string> = {
   idle: '기본 (idle) · 필수',
@@ -579,6 +579,8 @@ async function toSkin(built: BuiltSkin): Promise<{ skin: Skin; dispose: () => vo
     artFacing: $<HTMLSelectElement>('facing').value === 'left' ? -1 : 1,
     spriteFor: (state) => sprites.get(resolvePose(state, available))!,
     motionOff: (state) => still.has(state),
+    lines: {},
+    textColor: DEFAULT_TEXT_COLOR,
   };
   return { skin, dispose: () => bitmaps.forEach((b) => b.close()) };
 }

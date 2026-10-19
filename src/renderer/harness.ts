@@ -1,4 +1,4 @@
-import type { Mode, Roam } from '../engine/types';
+import { SPEECH_LEVELS, type Mode, type Roam, type SpeechLevel } from '../engine/types';
 import type { Settings, SkinInfo } from '../shared/types';
 
 const MODE_LABELS: [Mode, string][] = [
@@ -35,13 +35,17 @@ export function mountHarness(opts: {
   for (const s of opts.skins) skin.append(el('option', { value: s.id, textContent: s.name }));
   skin.addEventListener('change', () => opts.patch({ skin: skin.value }));
 
+  const speech = el('select');
+  for (const level of SPEECH_LEVELS) speech.append(el('option', { value: level, textContent: `speech: ${level}` }));
+  speech.addEventListener('change', () => opts.patch({ speech: speech.value as SpeechLevel }));
+
   const lock = el('input', { type: 'checkbox' });
   lock.addEventListener('change', () => opts.patch({ clickThrough: lock.checked }));
   const lockLabel = el('label', { textContent: 'click-through' });
   lockLabel.prepend(lock);
 
   const status = el('span', { id: 'status' });
-  panel.append(scale, scaleLabel, roam, skin, lockLabel, status);
+  panel.append(scale, scaleLabel, roam, skin, speech, lockLabel, status);
   document.body.append(panel);
 
   const sync = (s: Settings): void => {
@@ -50,6 +54,7 @@ export function mountHarness(opts: {
     scaleLabel.textContent = `x${s.scale}`;
     roam.value = s.roam;
     skin.value = s.skin;
+    speech.value = s.speech;
     lock.checked = s.clickThrough;
   };
   sync(opts.settings);

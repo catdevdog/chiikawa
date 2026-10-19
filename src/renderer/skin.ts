@@ -1,4 +1,4 @@
-import type { PetState, Rect } from '../engine/types';
+import type { Lines, PetState, Rect } from '../engine/types';
 import { isSkinId } from '../shared/ids';
 import { parseManifest, type PoseSource, type SheetPose } from '../shared/manifest';
 import { resolvePose } from './poses';
@@ -40,7 +40,14 @@ export interface Skin {
   spriteFor(state: PetState): Sprite;
   /** true when the artwork animates itself, so the engine's hop and squash should be skipped */
   motionOff(state: PetState): boolean;
+  /** what the pet says, by situation */
+  lines: Lines;
+  /** colour of the words above the pet */
+  textColor: string;
 }
+
+/** The colour of spoken words when a skin does not choose one. */
+export const DEFAULT_TEXT_COLOR = '#4d5a8f';
 
 /** Pose files must stay inside the skin's own folder. */
 function resolveInside(dir: string, file: string): string {
@@ -72,6 +79,8 @@ export async function loadSkin(id: string, base = '/skins'): Promise<Skin> {
     artFacing: manifest.facing === 'left' ? -1 : 1,
     spriteFor: (state) => sprites.get(resolvePose(state, available, manifest.states))!,
     motionOff: (state) => manifest.motion?.[state] === 'off',
+    lines: manifest.lines ?? {},
+    textColor: manifest.textColor ?? DEFAULT_TEXT_COLOR,
   };
 }
 

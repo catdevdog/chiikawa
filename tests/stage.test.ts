@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { mulberry32, type Vec2 } from '../src/engine';
-import { DEFAULT_SETTINGS, type Area, type Settings, type SkinGeometry, type ViewFrame } from '../src/shared/types';
+import { DEFAULT_SETTINGS, type Area, type Settings, type SkinReport, type ViewFrame } from '../src/shared/types';
 import { Stage, type StageWindow } from '../src/shell/stage';
 
-const GEOMETRY: SkinGeometry = { box: { w: 128, h: 128, anchorX: 0.5, anchorY: 0.94 }, hitbox: { x: 0.18, y: 0.22, w: 0.64, h: 0.72 } };
+const GEOMETRY: SkinReport = { box: { w: 128, h: 128, anchorX: 0.5, anchorY: 0.94 }, hitbox: { x: 0.18, y: 0.22, w: 0.64, h: 0.72 }, lines: {} };
 const SETTINGS: Settings = { ...DEFAULT_SETTINGS, mode: 'wander', roam: 'floor', skin: 'default' };
 
 // two monitors side by side; the right one is taller, so its floor is lower
@@ -314,6 +314,50 @@ describe('what the windows are told', () => {
   });
 });
 
+describe('what the pet says', () => {
+  const WORDS: SkinReport = { ...GEOMETRY, lines: { click: [{ text: '하아?', style: 'float' }], start: [{ text: '미야아아!', style: 'float' }] } };
+  const clickPet = (t: ReturnType<typeof setup>): void => {
+    const grab = t.body();
+    t.press(t.wins[0]!, grab);
+    t.release(t.wins[0]!, grab);
+    t.run(16);
+  };
+  const said = (win: FakeWindow): string[] => (win.last?.view.particles ?? []).filter((p) => p.kind === 'text').map((p) => p.text!);
+
+  it('answers a click with a line of the skin, in the frames the windows get', () => {
+    const t = setup([LEFT]);
+    t.stage.setSkin(WORDS);
+    t.run(2200);
+    clickPet(t);
+    expect(said(t.wins[0]!)).toContain('하아?');
+  });
+
+  it('greets when the skin arrives', () => {
+    const t = setup([LEFT]);
+    t.stage.setSkin(WORDS);
+    t.run(1200);
+    expect(t.wins[0]!.frames.some((f) => f?.view.particles.some((p) => p.text === '미야아아!'))).toBe(true);
+  });
+
+  it('is silent when speech is switched off', () => {
+    const t = setup([LEFT]);
+    t.stage.setSkin(WORDS);
+    t.stage.setSettings({ ...SETTINGS, speech: 'off' });
+    t.run(2200);
+    clickPet(t);
+    expect(t.wins[0]!.frames.some((f) => f?.view.particles.some((p) => p.kind === 'text'))).toBe(false);
+  });
+
+  it('starts out speaking when the setting is already on at the time the pet appears', () => {
+    const wins = [new FakeWindow(LEFT)];
+    const stage = new Stage({ cursor: () => ({ x: -500, y: -500 }), covered: () => false, rng: mulberry32(3) }, { ...SETTINGS, speech: 'off' });
+    stage.setWindows(wins);
+    stage.setSkin(WORDS);
+    for (let i = 0; i < 100; i++) stage.tick(1000 + i * 16);
+    expect(wins[0]!.frames.some((f) => f?.view.particles.some((p) => p.kind === 'text'))).toBe(false);
+  });
+});
+
 describe('the screens change', () => {
   it('keeps the pet on the screens that are left', () => {
     const { wins, run, stage } = setup();
@@ -337,7 +381,7 @@ describe('the screens change', () => {
   it('follows a new skin size', () => {
     const { run, stage } = setup([LEFT]);
     run(50);
-    stage.setSkin({ box: { w: 256, h: 256, anchorX: 0.5, anchorY: 0.9 }, hitbox: { x: 0.2, y: 0.2, w: 0.6, h: 0.75 } });
+    stage.setSkin({ box: { w: 256, h: 256, anchorX: 0.5, anchorY: 0.9 }, hitbox: { x: 0.2, y: 0.2, w: 0.6, h: 0.75 }, lines: {} });
     run(32);
     const r = stage.view!.hitbox;
     expect(r.w).toBeCloseTo(256 * 0.6);

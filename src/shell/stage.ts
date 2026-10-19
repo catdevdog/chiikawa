@@ -1,7 +1,7 @@
 import { Pet } from '../engine';
-import type { PetView, Rect, Vec2 } from '../engine/types';
+import type { PetView, Rect, SayEvent, Vec2 } from '../engine/types';
 import { mulberry32, inEllipse } from '../engine/vec';
-import type { Area, PointerReport, Settings, SkinGeometry, ViewFrame } from '../shared/types';
+import type { Area, PointerReport, Settings, SkinReport, ViewFrame } from '../shared/types';
 
 /** One overlay window, as the stage sees it. */
 export interface StageWindow {
@@ -43,7 +43,7 @@ interface WindowState {
 export class Stage {
   private pet: Pet | null = null;
   private settings: Settings;
-  private geometry: SkinGeometry | null = null;
+  private skin: SkinReport | null = null;
   private windows = new Map<StageWindow, WindowState>();
   private pressed: StageWindow | null = null;
   private last = Number.NaN;
@@ -65,6 +65,11 @@ export class Stage {
     return this.pet?.view ?? null;
   }
 
+  /** Makes the pet say something for a situation, as if it had just happened (for tests and diagnostics). */
+  say(event: SayEvent): void {
+    this.pet?.say(event);
+  }
+
   /** Which windows are up. Their areas are the screens the pet may be on; the first is where it starts. */
   setWindows(windows: readonly StageWindow[]): void {
     const next = new Map<StageWindow, WindowState>();
@@ -81,10 +86,12 @@ export class Stage {
   }
 
   /** The skin on screen changed (or was loaded for the first time). */
-  setSkin(g: SkinGeometry): void {
-    this.geometry = g;
-    if (this.pet) this.pet.setSprite(g.box, g.hitbox);
-    else this.start();
+  setSkin(skin: SkinReport): void {
+    this.skin = skin;
+    if (this.pet) {
+      this.pet.setSprite(skin.box, skin.hitbox);
+      this.pet.setLines(skin.lines);
+    } else this.start();
   }
 
   setSettings(s: Settings): void {
@@ -94,6 +101,7 @@ export class Stage {
     pet.setMode(s.mode);
     pet.setScale(s.scale);
     pet.setRoam(s.roam);
+    pet.setSpeech(s.speech);
     pet.setInteractive(!s.clickThrough);
     if (this.pressed && !pet.pressed) this.pressed = null;
   }
@@ -143,8 +151,8 @@ export class Stage {
   // --- internals -----------------------------------------------------------
 
   private start(): void {
-    const g = this.geometry;
-    if (this.pet || !g || this.windows.size === 0) return;
+    const skin = this.skin;
+    if (this.pet || !skin || this.windows.size === 0) return;
     const rects = [...this.windows.keys()].map((w) => rectOf(w.area));
     const s = this.settings;
     this.pet = new Pet({
@@ -152,8 +160,10 @@ export class Stage {
       region: rects,
       mode: s.mode,
       rng: this.deps.rng ?? mulberry32(Date.now()),
-      config: { scale: s.scale, roam: s.roam, sprite: g.box, hitbox: g.hitbox },
+      config: { scale: s.scale, roam: s.roam, sprite: skin.box, hitbox: skin.hitbox },
     });
+    this.pet.setSpeech(s.speech);
+    this.pet.setLines(skin.lines);
     this.pet.setInteractive(!s.clickThrough);
   }
 
@@ -166,13 +176,27 @@ export class Stage {
     else this.v = { x: (v.x - prev.x) / s, y: (v.y - prev.y) / s };
   }
 
-  /** Everything the pet may paint: its sprite box, with room for swinging, hopping and the hearts and z's. */
+  /** Everything the pet may paint: its sprite box with room for swinging, hopping, hearts and z's, and any words. */
   private paintArea(v: PetView): Area {
-    const { box } = this.geometry!;
+    const { box } = this.skin!;
     const w = box.w * v.scale;
     const h = box.h * v.scale;
     const pad = Math.max(w, h) * 0.6 + 80;
-    return { x: v.x - box.anchorX * w - pad, y: v.y - box.anchorY * h - pad, width: w + 2 * pad, height: h + 2 * pad };
+    let x0 = v.x - box.anchorX * w - pad;
+    let y0 = v.y - box.anchorY * h - pad;
+    let x1 = x0 + w + 2 * pad;
+    let y1 = y0 + h + 2 * pad;
+    // a sentence can be much wider than the pet
+    for (const p of v.particles) {
+      if (p.kind !== 'text') continue;
+      const half = (p.w ?? 0) / 2 + 12;
+      const size = p.size ?? 16;
+      x0 = Math.min(x0, p.x - half);
+      x1 = Math.max(x1, p.x + half);
+      y0 = Math.min(y0, p.y - size * 1.5);
+      y1 = Math.max(y1, p.y + size);
+    }
+    return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
   }
 
   private broadcast(v: PetView, now: number): void {

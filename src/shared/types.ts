@@ -1,4 +1,4 @@
-import type { Mode, PetView, Rect, Roam } from '../engine/types';
+import type { Lines, Mode, PetView, Rect, Roam, SpeechLevel } from '../engine/types';
 
 export interface Settings {
   mode: Mode;
@@ -10,6 +10,8 @@ export interface Settings {
   autoStart: boolean;
   /** where the pet lives: "all" monitors, the "primary" one, or the id of one monitor */
   monitor: string;
+  /** what the pet says: "all" (answers and murmurs), "reactions" (only answers), "off" */
+  speech: SpeechLevel;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -20,6 +22,7 @@ export const DEFAULT_SETTINGS: Settings = {
   clickThrough: false,
   autoStart: false,
   monitor: 'all',
+  speech: 'all',
 };
 
 export interface SkinInfo {
@@ -63,10 +66,13 @@ export interface PointerReport {
   y: number;
 }
 
-/** What the main process needs to know about the skin on screen to simulate the pet (as fractions where noted). */
-export interface SkinGeometry {
+/** What the main process needs to know about the skin on screen to simulate the pet. */
+export interface SkinReport {
   box: { w: number; h: number; anchorX: number; anchorY: number };
+  /** the body inside the box, as fractions of it */
   hitbox: Rect;
+  /** what the skin says, by situation */
+  lines: Lines;
 }
 
 export const IPC = {
@@ -75,7 +81,7 @@ export const IPC = {
   area: 'buddy:area',
   view: 'buddy:view',
   pointer: 'buddy:pointer',
-  skinGeometry: 'buddy:skin-geometry',
+  skin: 'buddy:skin',
   log: 'buddy:log',
   reloadSkin: 'buddy:reload-skin',
   makerExisting: 'buddy:maker-existing',
