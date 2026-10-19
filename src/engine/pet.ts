@@ -9,6 +9,7 @@ import {
   type NoticeEvent,
   type Particle,
   type ParticleKind,
+  type Peer,
   type PetConfig,
   type PetState,
   type PetView,
@@ -48,12 +49,17 @@ const CALL_GIVE_UP_MS = 6000;
 /** how likely the pet is to do one of its actions each time it decides what to do next, and in previews and tests */
 const ACTION_CHANCE = 0.12;
 const ACTION_CHATTY_CHANCE = 0.5;
+/** with friends about: how often a new place to walk to is a friend, and how far from it the pet stops */
+const VISIT_CHANCE = 0.45;
+const VISIT_GAP = 100;
 
 export interface PetOptions {
   /** one screen from the origin; its bottom edge is the floor */
   world: { width: number; height: number };
   /** several screens (their work areas, in one coordinate space); the first is where the pet starts. Replaces `world`. */
   region?: Rect[];
+  /** where the feet start, along the bottom of the first screen (the middle by default) */
+  x?: number;
   config?: Partial<PetConfig>;
   mode?: Mode;
   rng?: () => number;
@@ -104,6 +110,8 @@ export class Pet {
   private lastAct: string | null = null;
   /** may it start an action of its own accord (asked for, or for a situation, it always does) */
   private tricks = true;
+  /** the other pets on the same screens */
+  private peers: readonly Peer[] = [];
 
   private cursor: Vec2 | null = null;
   private prevCursor: Vec2 | null = null;
@@ -141,7 +149,7 @@ export class Pet {
     this.speaker = new Speaker(() => this.rng());
     this.speaker.chatty = !!opts.chatty;
     const home = this.region.rects[0]!;
-    this.pos = { x: home.x + home.w / 2, y: home.y + home.h };
+    this.pos = { x: opts.x ?? home.x + home.w / 2, y: home.y + home.h };
     this.prevX = this.pos.x;
     this.view = {
       x: 0, y: 0, facing: 1, state: 'idle', t: 0, sx: 1, sy: 1, rot: 0, lift: 0, pivot: 'feet',
@@ -232,11 +240,35 @@ export class Pet {
     return true;
   }
 
-  /** Says something for a situation, if the skin has words for it and it is not too soon. */
-  say(event: SayEvent): void {
+  /** Says something for a situation, if the skin has words for it and it is not too soon. `partner`: the friend it is for. */
+  say(event: SayEvent, partner?: string): void {
     const holding = this.particles.some((p) => p.kind === 'text' && p.style === 'hold' && p.age < p.life - 400);
-    const line = this.speaker.pick(event, this.time, holding);
+    const line = this.speaker.pick(event, this.time, holding, partner);
     if (line) this.spawnText(line);
+  }
+
+  /** The other pets that live on the same screens (their feet and what they are doing), kept up to date by whoever runs them. */
+  setPeers(peers: readonly Peer[]): void {
+    this.peers = peers;
+  }
+
+  /** Is the pet free to stop and greet a friend: on its feet and not busy with anything? */
+  get meetable(): boolean {
+    return (this.state === 'idle' || this.state === 'walk' || this.state === 'sit') && !this.summoned && !this.hover && this.press === null;
+  }
+
+  /**
+   * Meets a friend at `at`: stops and turns to face it, and then greets it (`greet`), answers its greeting
+   * (`reply`), or only listens (`listen`, for the one that is greeted and has not answered yet).
+   */
+  meet(partner: string, at: Vec2, role: 'greet' | 'reply' | 'listen'): void {
+    this.target = null;
+    if (this.state === 'walk' || this.state === 'run') this.enter('idle');
+    this.facing = at.x >= this.pos.x ? 1 : -1;
+    // stays a while with its friend before going on
+    this.decideIn = Math.max(this.decideIn, 2500);
+    if (role === 'greet') this.say('meet', partner);
+    else if (role === 'reply') this.say('reply', partner);
   }
 
   /**
@@ -734,6 +766,12 @@ export class Pet {
   private pickTarget(): Vec2 {
     const free = this.cfg.roam === 'free';
     const reach = this.reach();
+    // with friends about, often go and stand beside one (no random numbers are used when there is none)
+    if (this.peers.length > 0 && this.rng() < VISIT_CHANCE) {
+      const peer = this.peers[Math.floor(this.rng() * this.peers.length) % this.peers.length]!;
+      const side = peer.x >= this.pos.x ? -1 : 1;
+      return this.clampFeet({ x: peer.x + side * this.k(VISIT_GAP), y: free ? peer.y : this.pos.y });
+    }
     let t: Vec2 = this.pos;
     for (let i = 0; i < 4 && dist(t, this.pos) < this.k(80); i++) t = this.region.pick(this.rng, reach, free);
     return t;

@@ -4,7 +4,7 @@ import { isSkinId } from '../src/shared/ids';
 import { sanitizeSettings } from '../src/shared/sanitize';
 import { skinTitle } from '../src/shared/skin-name';
 import { sortSkins } from '../src/shared/skin-order';
-import { DEFAULT_SETTINGS } from '../src/shared/types';
+import { DEFAULT_SETTINGS, MAX_FRIENDS } from '../src/shared/types';
 import { parsePointer, parseSkinReport } from '../src/shared/validate';
 import { safeJoin } from '../src/shell/safe-path';
 
@@ -49,8 +49,8 @@ describe('sanitizeSettings', () => {
   });
 
   it('keeps valid values and clamps the scale', () => {
-    const s = sanitizeSettings({ mode: 'attach', roam: 'floor', skin: 'my-skin', scale: 99, clickThrough: true, autoStart: true, autoUpdate: false, monitor: '2528732444', speech: 'reactions', tricks: false });
-    expect(s).toEqual({ mode: 'attach', roam: 'floor', skin: 'my-skin', scale: 4, clickThrough: true, autoStart: true, autoUpdate: false, monitor: '2528732444', speech: 'reactions', tricks: false });
+    const s = sanitizeSettings({ mode: 'attach', roam: 'floor', skin: 'my-skin', scale: 99, clickThrough: true, autoStart: true, autoUpdate: false, monitor: '2528732444', speech: 'reactions', tricks: false, friends: ['usagi', 'rakko'] });
+    expect(s).toEqual({ mode: 'attach', roam: 'floor', skin: 'my-skin', scale: 4, clickThrough: true, autoStart: true, autoUpdate: false, monitor: '2528732444', speech: 'reactions', tricks: false, friends: ['usagi', 'rakko'] });
     expect(sanitizeSettings({ scale: 0.01 }).scale).toBe(0.25);
   });
 
@@ -68,6 +68,16 @@ describe('sanitizeSettings', () => {
     for (const tricks of ['no', 0, null, [], {}]) expect(sanitizeSettings({ tricks }).tricks).toBe(true);
   });
 
+  it('keeps a list of friends that are skins, each once, without the main character, up to the limit', () => {
+    expect(sanitizeSettings({}).friends).toEqual([]);
+    expect(sanitizeSettings({ skin: 'usagi', friends: ['hachiware', 'usagi', 'chiikawa', 'hachiware', 'rakko'] }).friends).toEqual(['hachiware', 'chiikawa', 'rakko']);
+    expect(sanitizeSettings({ friends: ['a', 'b', 'c', 'd', 'e', 'f', 'g'] }).friends).toHaveLength(MAX_FRIENDS);
+    for (const friends of ['usagi', 5, null, {}, [7, '../x', '', null, ['usagi']]]) expect(sanitizeSettings({ friends }).friends, JSON.stringify(friends)).toEqual([]);
+    // the list is judged against the main character that is kept, not the one that was asked for
+    expect(sanitizeSettings({ skin: '../x', friends: ['usagi'] }).friends).toEqual([]);
+    expect(sanitizeSettings({ skin: '../x', friends: [DEFAULT_SETTINGS.skin, 'rakko'] }).friends).toEqual(['rakko']);
+  });
+
   it('accepts the three speech levels and nothing else', () => {
     for (const speech of ['all', 'reactions', 'off']) expect(sanitizeSettings({ speech }).speech).toBe(speech);
     for (const speech of ['loud', '', 1, null, true]) expect(sanitizeSettings({ speech }).speech).toBe(DEFAULT_SETTINGS.speech);
@@ -82,20 +92,25 @@ describe('sanitizeSettings', () => {
 });
 
 describe('what an overlay may report', () => {
-  const report = { box: { w: 128, h: 140, anchorX: 0.5, anchorY: 0.94 }, hitbox: { x: 0.18, y: 0.22, w: 0.64, h: 0.72 } };
+  const report = { id: 'usagi', box: { w: 128, h: 140, anchorX: 0.5, anchorY: 0.94 }, hitbox: { x: 0.18, y: 0.22, w: 0.64, h: 0.72 } };
 
   it('accepts a skin report and keeps its numbers', () => {
     expect(parseSkinReport(report)).toEqual({ ...report, lines: {}, actions: {} });
   });
 
+  it('says which skin it is about, and refuses a name that cannot be a skin', () => {
+    expect(parseSkinReport({ ...report, id: 'my-skin_2' })!.id).toBe('my-skin_2');
+    for (const id of [undefined, null, 5, '', '..', '../x', 'a/b', 'a\\b', ['usagi']]) expect(parseSkinReport({ ...report, id }), String(id)).toBeNull();
+  });
+
   it('pulls numbers that are out of range back into it', () => {
-    const g = parseSkinReport({ box: { w: 99999, h: 1, anchorX: -3, anchorY: 4 }, hitbox: { x: 2, y: -1, w: 0, h: 9 } })!;
+    const g = parseSkinReport({ id: 'x', box: { w: 99999, h: 1, anchorX: -3, anchorY: 4 }, hitbox: { x: 2, y: -1, w: 0, h: 9 } })!;
     expect(g.box).toEqual({ w: 1024, h: 16, anchorX: 0, anchorY: 1 });
     expect(g.hitbox).toEqual({ x: 1, y: 0, w: 0.05, h: 1 });
   });
 
   it('refuses anything that is not numbers', () => {
-    for (const bad of [null, 5, 'x', {}, { box: {}, hitbox: {} }, { ...report, box: { ...report.box, w: NaN } }, { ...report, hitbox: { ...report.hitbox, x: '0' } }, { box: report.box }]) {
+    for (const bad of [null, 5, 'x', {}, { id: 'x', box: {}, hitbox: {} }, { ...report, box: { ...report.box, w: NaN } }, { ...report, hitbox: { ...report.hitbox, x: '0' } }, { id: 'x', box: report.box }]) {
       expect(parseSkinReport(bad)).toBeNull();
     }
   });

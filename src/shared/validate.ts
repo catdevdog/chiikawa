@@ -1,5 +1,6 @@
 import { parseActions } from '../engine/actions';
 import { parseLines } from '../engine/speech';
+import { isSkinId } from './ids';
 import type { Battery } from './power';
 import type { PointerReport, SkinReport } from './types';
 
@@ -12,8 +13,8 @@ const within = (v: unknown, lo: number, hi: number): number | null => (finite(v)
  */
 export function parseSkinReport(raw: unknown): SkinReport | null {
   if (!raw || typeof raw !== 'object') return null;
-  const { box, hitbox, lines, actions } = raw as Record<string, any>;
-  if (!box || typeof box !== 'object' || !hitbox || typeof hitbox !== 'object') return null;
+  const { id, box, hitbox, lines, actions } = raw as Record<string, any>;
+  if (!isSkinId(id) || !box || typeof box !== 'object' || !hitbox || typeof hitbox !== 'object') return null;
   const nums = [
     within(box.w, 16, 1024),
     within(box.h, 16, 1024),
@@ -26,7 +27,7 @@ export function parseSkinReport(raw: unknown): SkinReport | null {
   ];
   if (nums.some((n) => n === null)) return null;
   const [w, h, anchorX, anchorY, x, y, hw, hh] = nums as number[];
-  return { box: { w: w!, h: h!, anchorX: anchorX!, anchorY: anchorY! }, hitbox: { x: x!, y: y!, w: hw!, h: hh! }, lines: parseLines(lines), actions: parseActions(actions) };
+  return { id, box: { w: w!, h: h!, anchorX: anchorX!, anchorY: anchorY! }, hitbox: { x: x!, y: y!, w: hw!, h: hh! }, lines: parseLines(lines), actions: parseActions(actions) };
 }
 
 /** A mouse button going down or up in an overlay. */

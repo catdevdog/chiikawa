@@ -1,6 +1,6 @@
 import { Pet } from '../engine';
 import { DEFAULT_SETTINGS, type Area, type Settings, type SkinReport } from '../shared/types';
-import { drawScene, type Viewport } from './draw';
+import { drawScene, type DrawnPet, type Viewport } from './draw';
 import { mountHarness } from './harness';
 import { pickHost } from './host';
 import { RemoteView } from './remote';
@@ -44,7 +44,7 @@ async function watchBattery(): Promise<void> {
   }
 }
 
-const reportOf = (skin: Skin): SkinReport => ({ box: { ...skin.box }, hitbox: { ...skin.hitbox }, lines: skin.lines, actions: skin.actions });
+const reportOf = (id: string, skin: Skin): SkinReport => ({ id, box: { ...skin.box }, hitbox: { ...skin.hitbox }, lines: skin.lines, actions: skin.actions });
 
 /**
  * In Electron this window only draws: the main process simulates the pet for all monitors and sends what to
@@ -63,33 +63,49 @@ async function start(): Promise<void> {
     if (ready) fn();
     else queued.push(fn);
   };
-  host.onView((frame) => remote.push(frame, performance.now()));
+  host.onView((frames) => remote.push(frames, performance.now()));
   host.onSettings((s) => later(() => void apply(s)));
   host.onArea((a) => later(() => place(a)));
-  host.onReloadSkin(() => later(() => void loadSkinNow(settings.skin)));
+  host.onReloadSkin(() => later(() => void Promise.all(wanted().map(loadSkinNow))));
 
   const info = await host.init();
   let settings: Settings = { ...DEFAULT_SETTINGS, ...info.settings };
+  /** the skin of the main character, and every skin that is up (the friends' too) */
   let skin: Skin | null = null;
+  const skins = new Map<string, Skin>();
+  const loading = new Map<string, number>();
   let pet: Pet | null = null;
-  let skinSeq = 0;
   const view: Viewport = { x: info.area.x, y: info.area.y, width: 0, height: 0 };
   let lastDraw = 0;
   let drawn = false;
 
-  /** (Re)loads the skin; a slower load that finishes after a newer request is dropped. */
+  /** The characters that have to be on screen: the main one and (in Electron) its friends. */
+  const wanted = (): string[] => [settings.skin, ...(host.harness ? [] : settings.friends.filter((id) => id !== settings.skin))];
+
+  /** (Re)loads a skin and tells the main process about it; a slower load that finishes after a newer request is dropped. */
   const loadSkinNow = async (id: string): Promise<void> => {
-    const seq = ++skinSeq;
+    const seq = (loading.get(id) ?? 0) + 1;
+    loading.set(id, seq);
     const next = await loadSkinOrDefault(id);
-    if (seq !== skinSeq) return;
-    skin = next;
-    host.reportSkin(reportOf(next));
-    pet?.setSprite(next.box, next.hitbox);
-    pet?.setLines(next.lines);
-    pet?.setActions(next.actions);
+    if (loading.get(id) !== seq || !wanted().includes(id)) return;
+    skins.set(id, next);
+    host.reportSkin(reportOf(id, next));
+    if (id === settings.skin) {
+      skin = next;
+      pet?.setSprite(next.box, next.hitbox);
+      pet?.setLines(next.lines);
+      pet?.setActions(next.actions);
+    }
     lastDraw = 0;
   };
+  /** Loads the skins that are wanted and not here yet, and lets go of the ones that are not wanted any more. */
+  const syncSkins = (): void => {
+    const ids = wanted();
+    for (const id of [...skins.keys()]) if (!ids.includes(id)) skins.delete(id);
+    for (const id of ids) if (!skins.has(id) && !loading.has(id)) void loadSkinNow(id);
+  };
   await loadSkinNow(settings.skin);
+  for (const id of wanted().slice(1)) void loadSkinNow(id);
   void watchBattery();
 
   // test-page knob: make the pet nod off quickly
@@ -150,6 +166,8 @@ async function start(): Promise<void> {
       pet.setInteractive(!next.clickThrough);
     }
     if (next.skin !== prev.skin) await loadSkinNow(next.skin);
+    for (const id of loading.keys()) if (!wanted().includes(id)) loading.delete(id);
+    syncSkins();
     panel?.sync(next);
   };
 
@@ -205,22 +223,30 @@ async function start(): Promise<void> {
   // --- drawing -----------------------------------------------------------------------------------------
   let last = performance.now();
   let lastStatus = 0;
+  const shown: DrawnPet[] = [];
   const frame = (now: number): void => {
     requestAnimationFrame(frame);
     const dt = now - last;
     last = now;
     if (pet) pet.update(dt);
-    const v = pet ? pet.view : remote.at(now);
     if (!skin) return;
-    if (v) {
+    // the pets in this window, each with its skin (one still being loaded is left out)
+    shown.length = 0;
+    if (pet) shown.push({ view: pet.view, skin });
+    else
+      for (const p of remote.at(now)) {
+        const worn = skins.get(p.id);
+        if (worn) shown.push({ view: p.view, skin: worn });
+      }
+    if (shown.length > 0) {
       // calm states only need a slow refresh
-      if (v.animating || now - lastDraw >= CALM_REDRAW_MS) {
-        drawScene(ctx, v, skin, view, { debug });
+      if (shown.some((p) => p.view.animating) || now - lastDraw >= CALM_REDRAW_MS) {
+        drawScene(ctx, shown, view, { debug });
         lastDraw = now;
         drawn = true;
       }
     } else if (drawn) {
-      // the pet walked off this monitor
+      // every pet walked off this monitor
       ctx.clearRect(0, 0, view.width, view.height);
       drawn = false;
     }

@@ -20,7 +20,8 @@ import path from 'node:path';
 import type { Mode, NoticeEvent, Roam, SayEvent, SpeechLevel } from '../engine/types';
 import { chooseDisplays, MONITOR_ALL, MONITOR_PRIMARY, parseFakeDisplays, type DisplayInfo } from '../shared/displays';
 import { BatteryWatch } from '../shared/power';
-import { DEFAULT_SETTINGS, IPC, type InitInfo, type Settings } from '../shared/types';
+import { sanitizeFriends } from '../shared/sanitize';
+import { DEFAULT_SETTINGS, IPC, MAX_FRIENDS, type InitInfo, type Settings } from '../shared/types';
 import { parseBattery, parsePointer, parseSkinReport } from '../shared/validate';
 import { readDisplays, setFakeDisplays } from './displays';
 import { t } from './i18n';
@@ -66,7 +67,8 @@ let settings: Settings = { ...DEFAULT_SETTINGS };
 /** one overlay per monitor the pet lives on, by display id */
 const overlays = new Map<number, Overlay>();
 let stage: Stage;
-let lastSkin = '';
+/** the last report of each skin that was passed on, so that a skin every overlay reports is heard once */
+const lastSkins = new Map<string, string>();
 /** every overlay reports the battery; this keeps one warning for each time it runs low */
 const batteryWatch = new BatteryWatch();
 /** the screen is locked, so nobody is there to be greeted */
@@ -193,10 +195,10 @@ function registerIpc(): void {
   ipcMain.on(IPC.skin, (e, raw: unknown) => {
     const skin = overlayOf(e) && parseSkinReport(raw);
     if (!skin) return;
-    // every overlay reports the skin it loaded; the pet only needs to hear about a change
+    // every overlay reports each skin it loaded; the pets only need to hear about a change
     const key = JSON.stringify(skin);
-    if (key === lastSkin) return;
-    lastSkin = key;
+    if (key === lastSkins.get(skin.id)) return;
+    lastSkins.set(skin.id, key);
     stage.setSkin(skin);
     // the menu offers a trick only to a skin that has one
     void rebuildMenu();
@@ -259,6 +261,8 @@ function watchPower(): void {
 
 function update(patch: Partial<Settings>): void {
   settings = { ...settings, ...patch };
+  // the main character is not its own friend (a new choice of character takes it off the list), and the list has a limit
+  settings.friends = sanitizeFriends(settings.friends, settings.skin);
   saveSettings(settings);
   if (patch.autoStart !== undefined) applyAutoStart();
   if (patch.autoUpdate !== undefined) updates?.setBackground(settings.autoUpdate);
@@ -312,6 +316,29 @@ async function rebuildMenu(): Promise<void> {
           },
         ]
       : [];
+  // any other character can come along as a friend, up to a limit; with nobody else to choose there is no menu
+  const others = skins.filter((sk) => sk.id !== settings.skin);
+  const full = settings.friends.length >= MAX_FRIENDS;
+  const friends: MenuItemConstructorOptions[] =
+    others.length > 0
+      ? [
+          {
+            label: s.friends,
+            submenu: [
+              ...others.map(
+                (sk): MenuItemConstructorOptions => ({
+                  label: sk.name,
+                  type: 'checkbox',
+                  checked: settings.friends.includes(sk.id),
+                  enabled: settings.friends.includes(sk.id) || !full,
+                  click: (i) => update({ friends: i.checked ? [...settings.friends, sk.id] : settings.friends.filter((id) => id !== sk.id) }),
+                }),
+              ),
+              ...(full ? [{ type: 'separator' } as MenuItemConstructorOptions, { label: s.friendsFull(MAX_FRIENDS), enabled: false } as MenuItemConstructorOptions] : []),
+            ],
+          },
+        ]
+      : [];
   const updateItem = updates?.menuItem() ?? null;
   lastMenu = Menu.buildFromTemplate([
     { label: `${s.call} (${shortcutLabel(CALL_KEY)})`, click: () => callPet() },
@@ -360,6 +387,7 @@ async function rebuildMenu(): Promise<void> {
         { label: s.openSkins, click: () => void shell.openPath(userSkinsDir()) },
       ],
     },
+    ...friends,
     { label: s.makeSkin, click: () => openMaker() },
     { type: 'separator' },
     { label: s.clickThrough, type: 'checkbox', checked: settings.clickThrough, click: (i) => update({ clickThrough: i.checked }) },
@@ -441,7 +469,23 @@ function exposeTestHooks(): void {
     whatsNew: (wasReturning: boolean): Announced | null => announceChanges(wasReturning, () => {}),
     /** the tray menu as it is now: label, type, checked, enabled, submenu */
     menu: () => describeMenu(lastMenu),
+    /** clicks an item of the tray menu, found by the labels on the way to it; false when there is none (or it is switched off) */
+    clickMenu: (...labels: string[]): boolean => {
+      let items = lastMenu?.items ?? [];
+      for (const [i, label] of labels.entries()) {
+        const item = items.find((x) => x.label === label);
+        if (!item || !item.enabled) return false;
+        if (i === labels.length - 1) {
+          item.click();
+          return true;
+        }
+        items = item.submenu?.items ?? [];
+      }
+      return false;
+    },
     view: () => (stage.view ? { ...stage.view, particles: [...stage.view.particles] } : null),
+    /** every pet that is on the screens: the main character first, then its friends */
+    views: () => stage.views.map(({ id, view }) => ({ id, ...view, particles: [...view.particles] })),
     windows: () =>
       [...overlays.values()].map((o) => ({
         id: o.displayId,
@@ -463,13 +507,16 @@ async function boot(): Promise<void> {
   const returning = existsSync(userSkinsDir());
   ensureUserSkinsDir();
   settings = loadSettings();
+  // a friend whose skin folder has been taken away since last time cannot come along
+  const known = new Set((await listSkins()).map((sk) => sk.id));
+  settings = { ...settings, friends: settings.friends.filter((id) => known.has(id)) };
   stage = new Stage({ cursor: () => screen.getCursorScreenPoint(), covered: makerCovers }, settings);
   registerProtocol();
   registerIpc();
   registerMakerIpc({
     onSaved: (id) => {
-      // a skin that is on screen right now is re-read; the tray list picks up new ones
-      if (settings.skin === id) tellAll(IPC.reloadSkin, undefined);
+      // a skin that is on screen right now (as the main character or a friend) is re-read; the tray list picks up new ones
+      if (settings.skin === id || settings.friends.includes(id)) tellAll(IPC.reloadSkin, undefined);
       void rebuildMenu();
     },
     apply: (skin) => update({ skin }),

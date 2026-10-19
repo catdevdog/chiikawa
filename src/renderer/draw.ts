@@ -14,15 +14,27 @@ export interface Viewport {
   height: number;
 }
 
-/** Draws the pet, whose position is in the shared screen space, into a canvas that shows only `view` of it. */
-export function drawScene(ctx: CanvasRenderingContext2D, v: PetView, skin: Skin, view: Viewport, opts: DrawOptions = {}): void {
+/** A pet to draw: how it looks now, and the skin it wears. */
+export interface DrawnPet {
+  view: PetView;
+  skin: Skin;
+}
+
+/**
+ * Draws the pets, whose positions are in the shared screen space, into a canvas that shows only `view` of it. The one
+ * standing lower on the screen is nearer and is in front; every word is above all of the pets.
+ */
+export function drawScene(ctx: CanvasRenderingContext2D, pets: readonly DrawnPet[], view: Viewport, opts: DrawOptions = {}): void {
   ctx.clearRect(0, 0, view.width, view.height);
   ctx.save();
   ctx.translate(-view.x, -view.y);
-  drawShadow(ctx, v, skin);
-  drawPet(ctx, v, skin);
-  drawParticles(ctx, v.particles, skin.textColor);
-  if (opts.debug) drawDebug(ctx, v);
+  const order = pets.length > 1 ? [...pets].sort((a, b) => a.view.y - b.view.y) : pets;
+  for (const p of order) {
+    drawShadow(ctx, p.view, p.skin);
+    drawPet(ctx, p.view, p.skin);
+  }
+  for (const p of order) drawParticles(ctx, p.view.particles, p.skin.textColor);
+  if (opts.debug) for (const p of order) drawDebug(ctx, p.view);
   ctx.restore();
 }
 

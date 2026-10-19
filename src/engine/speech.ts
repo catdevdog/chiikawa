@@ -29,6 +29,15 @@ export function parseLines(raw: unknown): Lines {
 }
 
 /** One list of lines: `["하아?", { "text": "...", "style": "hold" }]`. Anything that is not text, and what is past the limits, is dropped. */
+const FRIEND_ID = /^(?!\.+$)[\w.-]{1,64}$/;
+const MAX_FRIENDS_PER_LINE = 8;
+
+/** The `with` of a line: the skin ids it is for. */
+function parseWith(v: unknown): string[] | undefined {
+  const list = (typeof v === 'string' ? [v] : Array.isArray(v) ? v : []).filter((id): id is string => typeof id === 'string' && FRIEND_ID.test(id));
+  return list.length > 0 ? [...new Set(list)].slice(0, MAX_FRIENDS_PER_LINE) : undefined;
+}
+
 export function parseLineList(list: unknown): Line[] {
   const lines: Line[] = [];
   if (!Array.isArray(list)) return lines;
@@ -39,7 +48,8 @@ export function parseLineList(list: unknown): Line[] {
     const text = [...source.replace(/\p{Cc}/gu, ' ').replace(/\s+/g, ' ').trim()].slice(0, MAX_LINE_CHARS).join('');
     if (!text) continue;
     const wanted = obj?.style;
-    lines.push({ text, style: wanted === 'float' || wanted === 'hold' ? wanted : classify(text) });
+    const friends = parseWith(obj?.with);
+    lines.push({ text, style: wanted === 'float' || wanted === 'hold' ? wanted : classify(text), ...(friends ? { with: friends } : {}) });
     if (lines.length >= MAX_LINES_PER_EVENT) break;
   }
   return lines;
@@ -85,6 +95,9 @@ const RULES: Record<SayEvent, Rule> = {
   sleep: { chance: 0.8, cooldown: 20_000 },
   wake: { chance: 1, cooldown: 8_000 },
   cross: { chance: 0.7, cooldown: 20_000 },
+  // a friend was met, and answered
+  meet: { chance: 1, cooldown: 20_000, urgent: true },
+  reply: { chance: 1, cooldown: 20_000, urgent: true },
   // the user asked for the pet, or the computer did something: always answered, even over other words
   call: { chance: 1, cooldown: 1_500, urgent: true },
   // an unlock and a wake from sleep come one after the other, and a loose plug flickers
@@ -93,6 +106,16 @@ const RULES: Record<SayEvent, Rule> = {
   unplug: { chance: 1, cooldown: 20_000, urgent: true },
   lowBattery: { chance: 1, cooldown: 120_000, urgent: true },
 };
+
+/** The lines to choose from when talking to `partner` (or to nobody): its own lines if there are any, else the common ones. */
+export function forPartner(pool: readonly Line[] | undefined, partner?: string): readonly Line[] {
+  if (!pool || pool.length === 0) return [];
+  if (partner !== undefined) {
+    const mine = pool.filter((l) => l.with?.includes(partner));
+    if (mine.length > 0) return mine;
+  }
+  return pool.filter((l) => !l.with);
+}
 
 /** Two lines never come closer than this, unless the second one is an urgent answer. */
 const GAP_MS = 900;
@@ -144,10 +167,14 @@ export class Speaker {
     return line;
   }
 
-  /** The line for `event` at time `now` (ms), or null. `busy`: held words are still up. */
-  pick(event: SayEvent, now: number, busy: boolean): Line | null {
-    const pool = this.lines[event];
-    if (this.level === 'off' || !pool || pool.length === 0) return null;
+  /**
+   * The line for `event` at time `now` (ms), or null. `busy`: held words are still up. `partner` is the friend the
+   * pet is talking to: lines made for it come first, then the lines for anyone; without a partner only the lines
+   * for anyone are used.
+   */
+  pick(event: SayEvent, now: number, busy: boolean, partner?: string): Line | null {
+    const pool = forPartner(this.lines[event], partner);
+    if (this.level === 'off' || pool.length === 0) return null;
     const rule = RULES[event];
     if (rule.murmur && this.level !== 'all') return null;
     const cooldown = this.chatty ? rule.cooldown / 5 : rule.cooldown;

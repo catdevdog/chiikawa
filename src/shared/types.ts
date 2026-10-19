@@ -16,7 +16,12 @@ export interface Settings {
   speech: SpeechLevel;
   /** the pet does one of its actions now and then on its own (it still does them when asked, and for a situation) */
   tricks: boolean;
+  /** characters that live here besides `skin`, by skin id: each is a pet of its own, and they greet each other */
+  friends: string[];
 }
+
+/** How many friends a pet can have (so the screens hold at most one more than this). */
+export const MAX_FRIENDS = 4;
 
 export const DEFAULT_SETTINGS: Settings = {
   mode: 'auto',
@@ -29,6 +34,7 @@ export const DEFAULT_SETTINGS: Settings = {
   monitor: 'all',
   speech: 'all',
   tricks: true,
+  friends: [],
 };
 
 export interface SkinInfo {
@@ -59,6 +65,8 @@ export interface InitInfo {
  * the overlay subtracts its own origin. The velocity lets it draw smoothly between two frames.
  */
 export interface ViewFrame {
+  /** whose pet it is: the id of its skin */
+  id: string;
   view: PetView;
   /** px per second */
   vx: number;
@@ -74,6 +82,8 @@ export interface PointerReport {
 
 /** What the main process needs to know about the skin on screen to simulate the pet. */
 export interface SkinReport {
+  /** the skin that was loaded */
+  id: string;
   box: { w: number; h: number; anchorX: number; anchorY: number };
   /** the body inside the box, as fractions of it */
   hitbox: Rect;

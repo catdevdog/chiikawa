@@ -11,7 +11,7 @@ contextBridge.exposeInMainWorld('buddyHost', {
   init: (): Promise<InitInfo> => ipcRenderer.invoke(IPC.init),
   onSettings: (cb: (s: Settings) => void) => on(IPC.settings, cb),
   onArea: (cb: (a: Area) => void) => on(IPC.area, cb),
-  onView: (cb: (frame: ViewFrame | null) => void) => on(IPC.view, cb),
+  onView: (cb: (frames: ViewFrame[]) => void) => on(IPC.view, cb),
   onReloadSkin: (cb: () => void) => on(IPC.reloadSkin, cb),
   pointer: (report: PointerReport) => ipcRenderer.send(IPC.pointer, report),
   reportSkin: (skin: SkinReport) => ipcRenderer.send(IPC.skin, skin),

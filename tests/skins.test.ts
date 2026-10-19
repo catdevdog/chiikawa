@@ -1,11 +1,15 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { forPartner } from '../src/engine/speech';
 import { SAY_EVENTS } from '../src/engine/types';
 import { DEFAULT_SETTINGS } from '../src/shared/types';
 import { parseManifest, poseFiles } from '../src/shared/manifest';
 
 const ROOT = path.resolve(__dirname, '..');
+
+/** The characters of the show that ship with the app (the original mascot is not one of them). */
+const CAST = ['chiikawa', 'hachiware', 'usagi', 'rakko'];
 
 /** The skins the installer ships: every `from: skins/<id>` entry of electron-builder.yml. */
 const bundled = [...readFileSync(path.join(ROOT, 'electron-builder.yml'), 'utf8').matchAll(/from:\s*skins\/([\w.-]+)/g)].map((m) => m[1]!);
@@ -79,6 +83,28 @@ describe('bundled skins', () => {
       it('has something to say in every situation', () => {
         const manifest = parseManifest(JSON.parse(readFileSync(path.join(dir, 'manifest.json'), 'utf8')), id);
         for (const event of SAY_EVENTS) expect(manifest.lines?.[event]?.length ?? 0, `${id}: lines.${event}`).toBeGreaterThan(0);
+      });
+
+      it('can greet and answer any friend, and has words of its own for the characters it knows', () => {
+        const manifest = parseManifest(JSON.parse(readFileSync(path.join(dir, 'manifest.json'), 'utf8')), id);
+        for (const event of ['meet', 'reply'] as const) {
+          const list = manifest.lines?.[event] ?? [];
+          // a friend this skin has no words for (a skin somebody made) still gets a greeting
+          expect(list.filter((l) => !l.with).length, `${id}: lines.${event} for anyone`).toBeGreaterThan(0);
+          // words for a friend are for a character that exists, and never for the skin itself
+          for (const l of list) {
+            for (const friend of l.with ?? []) {
+              expect(bundled, `${id}: lines.${event} "${l.text}" is for ${friend}`).toContain(friend);
+              expect(friend, `${id}: lines.${event} "${l.text}" is for itself`).not.toBe(id);
+            }
+          }
+          // the four characters of the show talk to each other in their own words
+          if (CAST.includes(id)) {
+            for (const friend of CAST.filter((c) => c !== id)) {
+              expect(forPartner(list, friend).some((l) => l.with), `${id}: lines.${event} for ${friend}`).toBe(true);
+            }
+          }
+        }
       });
 
       it('stays small enough to bundle', () => {

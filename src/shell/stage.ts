@@ -1,7 +1,7 @@
-import { Pet } from '../engine';
+import { Flock, Pet } from '../engine';
 import type { NoticeEvent, PetView, Rect, SayEvent, Vec2 } from '../engine/types';
-import { mulberry32, inEllipse } from '../engine/vec';
-import type { Area, PointerReport, Settings, SkinReport, ViewFrame } from '../shared/types';
+import { clamp, inEllipse, mulberry32 } from '../engine/vec';
+import { MAX_FRIENDS, type Area, type PointerReport, type Settings, type SkinReport, type ViewFrame } from '../shared/types';
 
 /** One overlay window, as the stage sees it. */
 export interface StageWindow {
@@ -9,8 +9,8 @@ export interface StageWindow {
   readonly area: Area;
   /** Lets the mouse through (true) or makes the window take it (false). */
   setIgnoring(ignore: boolean): void;
-  /** The pet as seen from the shared space; null once the pet has left this window. */
-  send(frame: ViewFrame | null): void;
+  /** The pets that are in this window, as seen from the shared space (none: nothing to draw here). */
+  send(frames: ViewFrame[]): void;
 }
 
 export interface StageDeps {
@@ -25,6 +25,8 @@ export interface StageDeps {
 const CALM_MS = 66;
 /** A jump this long in one step is a teleport (the screens changed), not movement to draw towards. */
 const TELEPORT = 240;
+/** Friends start this far apart, to either side of the middle. */
+const FRIEND_SPACING = 260;
 
 const rectOf = (a: Area): Rect => ({ x: a.x, y: a.y, w: a.width, h: a.height });
 const contains = (a: Area, p: Vec2): boolean => p.x >= a.x && p.x < a.x + a.width && p.y >= a.y && p.y < a.y + a.height;
@@ -33,161 +35,190 @@ const overlaps = (a: Area, b: Area): boolean =>
 
 interface WindowState {
   ignoring: boolean;
-  hasPet: boolean;
+  /** the pets (by id) this window was last told about */
+  present: Set<string>;
+}
+
+/** One pet that lives on the screens: its skin, and what its windows need to know to draw it between two frames. */
+interface Member {
+  id: string;
+  pet: Pet;
+  skin: SkinReport;
+  from: Vec2 | null;
+  v: Vec2;
+  sent: { state: string; facing: number; interactive: boolean; scale: number; particles: number };
+  sentAt: number;
 }
 
 /**
- * The pet's whole life, in one place for all monitors: it is simulated here, in the shared screen space, and
- * every overlay window just draws what it is told. The stage also decides which window lets the mouse through.
+ * The pets' whole life, in one place for all monitors: they are simulated here, in the shared screen space, and
+ * every overlay window just draws what it is told. The first pet is the main character (the one the mode and the
+ * mouse are about); the others are its friends, who go about on their own and meet each other. The stage also
+ * decides which window lets the mouse through.
  */
 export class Stage {
-  private pet: Pet | null = null;
+  /** the main character first, then its friends */
+  private members: Member[] = [];
+  /** the skin of every character the overlays have loaded */
+  private reports = new Map<string, SkinReport>();
   private settings: Settings;
-  private skin: SkinReport | null = null;
   private windows = new Map<StageWindow, WindowState>();
-  private pressed: StageWindow | null = null;
+  private pressed: { win: StageWindow; member: Member } | null = null;
   /** put away for a while: nothing moves, nothing is drawn, the mouse goes through */
   private hidden = false;
   private last = Number.NaN;
   private lastCursor: Vec2 = { x: Number.NaN, y: Number.NaN };
-  private from: Vec2 | null = null;
-  private v: Vec2 = { x: 0, y: 0 };
-  private sentAt = -Infinity;
-  private sent = { state: '', facing: 0, interactive: false, scale: 0, particles: 0 };
+  private readonly flock: Flock;
 
   constructor(
     private readonly deps: StageDeps,
     settings: Settings,
   ) {
     this.settings = settings;
+    this.flock = new Flock(deps.rng ?? mulberry32(Date.now() ^ 0x5bd1e995));
   }
 
-  /** The pet's current look, or null before it exists. For tests and diagnostics. */
+  /** The main character's current look, or null before it exists. For tests and diagnostics. */
   get view(): PetView | null {
-    return this.pet?.view ?? null;
+    return this.members[0]?.pet.view ?? null;
   }
 
-  /** Makes the pet say something for a situation, as if it had just happened (for tests and diagnostics). */
+  /** Everyone's current look, by skin id. For tests and diagnostics. */
+  get views(): { id: string; view: PetView }[] {
+    return this.members.map((m) => ({ id: m.id, view: m.pet.view }));
+  }
+
+  /** Makes the main character say something for a situation, as if it had just happened (for tests and diagnostics). */
   say(event: SayEvent): void {
-    this.pet?.say(event);
+    this.members[0]?.pet.say(event);
   }
 
   get isHidden(): boolean {
     return this.hidden;
   }
 
-  /** Puts the pet away, or brings it back where it was (with a greeting). The pet does not live on while hidden. */
+  /** Puts the pets away, or brings them back where they were (with a greeting). They do not live on while hidden. */
   setHidden(hidden: boolean): void {
     if (hidden === this.hidden) return;
     this.hidden = hidden;
     if (hidden) this.putAway();
     else {
       this.resume();
-      this.pet?.say('start');
+      for (const m of this.members) m.pet.say('start');
     }
   }
 
-  /** The user calls the pet: out of hiding if need be, and over to the cursor. */
+  /** The user calls the pets: out of hiding if need be, and over to the cursor. */
   call(): void {
     if (this.hidden) {
       this.hidden = false;
       this.resume();
     }
-    this.pet?.call();
+    for (const m of this.members) m.pet.call();
   }
 
-  /** Does the skin on screen have any actions to show? */
+  /** Does any of the characters on screen have actions to show? */
   get hasActions(): boolean {
-    return this.pet?.hasActions ?? false;
+    return this.members.some((m) => m.pet.hasActions);
   }
 
-  /** The user asks to see a trick: one of the skin's actions now. False when there is none to do, or the pet is away. */
+  /**
+   * The user asks to see a trick. With a name it is the main character's action of that name; without, every
+   * character that has any does one. False when there was none to do, or the pets are away.
+   */
   perform(name?: string): boolean {
-    return !this.hidden && (this.pet?.perform(name) ?? false);
+    if (this.hidden) return false;
+    if (name !== undefined) return this.members[0]?.pet.perform(name) ?? false;
+    let did = false;
+    for (const m of this.members) did = m.pet.perform() || did;
+    return did;
   }
 
-  /** Something happened on the computer. A pet that is put away has nothing to show for it. */
+  /** Something happened on the computer. Pets that are put away have nothing to show for it. */
   notice(event: NoticeEvent): void {
-    if (!this.hidden) this.pet?.notice(event);
+    if (this.hidden) return;
+    for (const m of this.members) m.pet.notice(event);
   }
 
-  /** Which windows are up. Their areas are the screens the pet may be on; the first is where it starts. */
+  /** Which windows are up. Their areas are the screens the pets may be on; the first is where they start. */
   setWindows(windows: readonly StageWindow[]): void {
     const next = new Map<StageWindow, WindowState>();
     // a new window starts out letting the mouse through
-    for (const w of windows) next.set(w, this.windows.get(w) ?? { ignoring: true, hasPet: false });
+    for (const w of windows) next.set(w, this.windows.get(w) ?? { ignoring: true, present: new Set() });
     this.windows = next;
-    if (this.pressed && !next.has(this.pressed)) {
+    if (this.pressed && !next.has(this.pressed.win)) {
+      this.pressed.member.pet.cancelPointer();
       this.pressed = null;
-      this.pet?.cancelPointer();
     }
-    // with no window at all (every monitor is gone for a moment) the pet keeps the screens it had
-    if (this.pet && windows.length > 0) this.pet.setRegion(windows.map((w) => rectOf(w.area)));
-    else this.start();
+    // with no window at all (every monitor is gone for a moment) the pets keep the screens they had
+    if (windows.length > 0) for (const m of this.members) m.pet.setRegion(windows.map((w) => rectOf(w.area)));
+    this.sync();
   }
 
-  /** The skin on screen changed (or was loaded for the first time). */
+  /** A skin on screen changed (or was loaded for the first time). */
   setSkin(skin: SkinReport): void {
-    this.skin = skin;
-    if (this.pet) {
-      this.pet.setSprite(skin.box, skin.hitbox);
-      this.pet.setLines(skin.lines);
-      this.pet.setActions(skin.actions);
-    } else this.start();
+    this.reports.set(skin.id, skin);
+    this.sync();
+    const m = this.members.find((x) => x.id === skin.id);
+    if (m) this.dress(m, skin);
   }
 
   setSettings(s: Settings): void {
     this.settings = s;
-    const pet = this.pet;
-    if (!pet) return;
-    pet.setMode(s.mode);
-    pet.setScale(s.scale);
-    pet.setRoam(s.roam);
-    pet.setSpeech(s.speech);
-    pet.setTricks(s.tricks);
-    pet.setInteractive(!s.clickThrough);
-    if (this.pressed && !pet.pressed) this.pressed = null;
+    this.sync();
+    this.members.forEach((m, i) => this.apply(m, i === 0));
+    if (this.pressed && !this.pressed.member.pet.pressed) this.pressed = null;
   }
 
   /**
    * A mouse button went down or up in `win`. A press is placed by the window's own coordinates (they are exact for
-   * the click); a release is placed by the pointer itself, which is right even when the window lost the pointer.
+   * the click) and goes to the pet in front at that point; a release is placed by the pointer itself, which is right
+   * even when the window lost the pointer.
    */
   pointer(win: StageWindow, e: PointerReport): void {
-    const pet = this.pet;
-    if (!pet || this.hidden || !this.windows.has(win)) return;
+    if (this.members.length === 0 || this.hidden || !this.windows.has(win)) return;
     const c = this.deps.cursor();
     if (e.kind === 'down') {
-      if (pet.pressed) return;
-      pet.pointerDown({ x: win.area.x + e.x, y: win.area.y + e.y });
-      this.pressed = pet.pressed ? win : null;
-    } else if (this.pressed === win) {
-      pet.pointerUp(c);
+      if (this.pressed) return;
+      const at = { x: win.area.x + e.x, y: win.area.y + e.y };
+      const member = this.frontAt(at);
+      if (!member) return;
+      member.pet.pointerDown(at);
+      this.pressed = member.pet.pressed ? { win, member } : null;
+    } else if (this.pressed?.win === win) {
+      this.pressed.member.pet.pointerUp(c);
       this.pressed = null;
     }
     this.captureMouse(c);
   }
 
-  /** Advances the pet to `now` (ms) and sends what changed to the windows. */
+  /** Advances the pets to `now` (ms) and sends what changed to the windows. */
   tick(now: number): void {
-    const pet = this.pet;
-    if (!pet || this.hidden) return;
+    if (this.members.length === 0 || this.hidden) return;
     const dt = Number.isNaN(this.last) ? 16 : now - this.last;
     this.last = now;
     const c = this.deps.cursor();
     const covered = this.deps.covered(c);
 
-    pet.setCursor(c);
-    // hover, rubbing and drags follow the polled pointer: the windows only report the buttons
+    // hover, rubbing and drags follow the polled pointer: the windows only report the buttons. Only the pet in
+    // front (or the one being held) feels the pointer; the others are left alone by it.
     const moved = c.x !== this.lastCursor.x || c.y !== this.lastCursor.y;
     this.lastCursor = c;
-    if (pet.pressed || (moved && !covered)) pet.pointerMove(c);
-    if (covered || !pet.isOver(c)) pet.pointerLeave();
-    pet.update(dt);
-    if (this.pressed && !pet.pressed) this.pressed = null;
+    const front = this.pressed?.member ?? (covered ? null : this.frontAt(c));
+    for (const m of this.members) {
+      m.pet.setCursor(c);
+      if (m.pet.pressed || (m === front && moved && !covered)) m.pet.pointerMove(c);
+      if (covered || m !== front || !m.pet.isOver(c)) m.pet.pointerLeave();
+    }
+    this.flock.step(
+      dt,
+      this.members.map((m) => ({ id: m.id, pet: m.pet })),
+    );
+    for (const m of this.members) m.pet.update(dt);
+    if (this.pressed && !this.pressed.member.pet.pressed) this.pressed = null;
 
-    this.measure(pet.view, dt);
-    this.broadcast(pet.view, now);
+    for (const m of this.members) this.measure(m, dt);
+    this.broadcast(now);
     this.captureMouse(c);
   }
 
@@ -195,11 +226,11 @@ export class Stage {
 
   /** Clears every window and lets the mouse through; a pet in someone's hand is let go. */
   private putAway(): void {
-    this.pet?.cancelPointer();
+    for (const m of this.members) m.pet.cancelPointer();
     this.pressed = null;
     for (const [win, st] of this.windows) {
-      if (st.hasPet) win.send(null);
-      st.hasPet = false;
+      if (st.present.size > 0) win.send([]);
+      st.present = new Set();
       if (!st.ignoring) {
         st.ignoring = true;
         win.setIgnoring(true);
@@ -207,43 +238,132 @@ export class Stage {
     }
   }
 
-  /** Time stood still while the pet was away; the first step after it is an ordinary one. */
+  /** Time stood still while the pets were away; the first step after it is an ordinary one. */
   private resume(): void {
     this.last = Number.NaN;
-    this.sent.state = '';
+    for (const m of this.members) m.sent.state = '';
   }
 
-  private start(): void {
-    const skin = this.skin;
-    if (this.pet || !skin || this.windows.size === 0) return;
-    const rects = [...this.windows.keys()].map((w) => rectOf(w.area));
+  /**
+   * Makes the pets match the settings and the skins that are known: the main character is the skin that is chosen
+   * (a new choice changes the clothes of the pet that is there, which stays where it is), and every friend that is
+   * chosen and known is a pet of its own. Friends that are no longer chosen leave.
+   */
+  private sync(): void {
+    if (this.windows.size === 0) return;
     const s = this.settings;
-    this.pet = new Pet({
-      world: { width: rects[0]!.w, height: rects[0]!.h },
+    const main = this.reports.get(s.skin);
+    if (main) {
+      if (this.members.length === 0) this.members.push(this.create(s.skin, main, null));
+      else if (this.members[0]!.id !== s.skin) {
+        this.members[0]!.id = s.skin;
+        this.dress(this.members[0]!, main);
+      }
+    }
+    if (this.members.length === 0) return;
+    const mainId = this.members[0]!.id;
+    const wanted = s.friends.filter((id) => id !== mainId && this.reports.has(id));
+    const there = new Map(this.members.slice(1).map((m) => [m.id, m]));
+    // where everybody stands, so that a newcomer does not come down on top of someone
+    const standing = this.members.map((m) => m.pet.view.x);
+    // the main character first, then the friends in the order they were chosen; the ones already here stay as they are
+    const next = [this.members[0]!];
+    for (const id of wanted) {
+      let m = there.get(id);
+      if (!m) {
+        m = this.create(id, this.reports.get(id)!, standing);
+        standing.push(m.pet.view.x);
+      }
+      next.push(m);
+    }
+    this.members = next;
+  }
+
+  /** The place for a friend that comes in: to either side of the middle of the first screen, the free one nearest it. */
+  private startX(first: Rect, standing: readonly number[]): number {
+    const middle = first.x + first.w / 2;
+    let best = middle;
+    let bestGap = -1;
+    for (let slot = 1; slot <= 2 * MAX_FRIENDS + 1; slot++) {
+      const side = slot % 2 === 1 ? 1 : -1;
+      const x = clamp(middle + side * Math.ceil(slot / 2) * FRIEND_SPACING, first.x + 80, first.x + first.w - 80);
+      const gap = Math.min(Infinity, ...standing.map((o) => Math.abs(o - x)));
+      if (gap >= FRIEND_SPACING / 2) return x;
+      // a small screen has no free place: take the one with the most room
+      if (gap > bestGap) {
+        best = x;
+        bestGap = gap;
+      }
+    }
+    return best;
+  }
+
+  /** A new pet. A friend (`standing` says where the others are) comes in at a free place; the main character (null) in the middle. */
+  private create(id: string, skin: SkinReport, standing: readonly number[] | null): Member {
+    const rects = [...this.windows.keys()].map((w) => rectOf(w.area));
+    const first = rects[0]!;
+    const s = this.settings;
+    const pet = new Pet({
+      world: { width: first.w, height: first.h },
       region: rects,
-      mode: s.mode,
-      rng: this.deps.rng ?? mulberry32(Date.now()),
+      mode: standing ? 'wander' : s.mode,
+      rng: this.deps.rng ?? mulberry32(Date.now() + this.members.length * 7919 + (standing?.length ?? 0) * 104729),
+      x: standing ? this.startX(first, standing) : undefined,
       config: { scale: s.scale, roam: s.roam, sprite: skin.box, hitbox: skin.hitbox },
     });
-    this.pet.setSpeech(s.speech);
-    this.pet.setTricks(s.tricks);
-    this.pet.setLines(skin.lines);
-    this.pet.setActions(skin.actions);
-    this.pet.setInteractive(!s.clickThrough);
+    const m: Member = { id, pet, skin, from: null, v: { x: 0, y: 0 }, sent: { state: '', facing: 0, interactive: false, scale: 0, particles: 0 }, sentAt: -Infinity };
+    pet.setSpeech(s.speech);
+    pet.setTricks(s.tricks);
+    pet.setLines(skin.lines);
+    pet.setActions(skin.actions);
+    pet.setInteractive(!s.clickThrough);
+    return m;
+  }
+
+  /** The pet wears this skin (its size, its words and its actions). */
+  private dress(m: Member, skin: SkinReport): void {
+    m.skin = skin;
+    m.pet.setSprite(skin.box, skin.hitbox);
+    m.pet.setLines(skin.lines);
+    m.pet.setActions(skin.actions);
+  }
+
+  private apply(m: Member, main: boolean): void {
+    const s = this.settings;
+    const pet = m.pet;
+    // only the main character is about the mouse; its friends go about on their own
+    pet.setMode(main ? s.mode : 'wander');
+    pet.setScale(s.scale);
+    pet.setRoam(s.roam);
+    pet.setSpeech(s.speech);
+    pet.setTricks(s.tricks);
+    pet.setInteractive(!s.clickThrough);
+  }
+
+  /** The pet in front at a point (the one standing lowest on the screen, of those that are there), if any. */
+  private frontAt(p: Vec2): Member | null {
+    let best: Member | null = null;
+    for (const m of this.members) {
+      if (!m.pet.view.interactive || !m.pet.isOver(p)) continue;
+      if (!best || m.pet.view.y > best.pet.view.y) best = m;
+    }
+    return best;
   }
 
   /** Feet speed over the last step, so a window can draw the pet between two frames. */
-  private measure(v: PetView, dt: number): void {
-    const prev = this.from;
-    this.from = { x: v.x, y: v.y };
+  private measure(m: Member, dt: number): void {
+    const v = m.pet.view;
+    const prev = m.from;
+    m.from = { x: v.x, y: v.y };
     const s = Math.max(dt, 1) / 1000;
-    if (!prev || Math.hypot(v.x - prev.x, v.y - prev.y) > TELEPORT) this.v = { x: 0, y: 0 };
-    else this.v = { x: (v.x - prev.x) / s, y: (v.y - prev.y) / s };
+    if (!prev || Math.hypot(v.x - prev.x, v.y - prev.y) > TELEPORT) m.v = { x: 0, y: 0 };
+    else m.v = { x: (v.x - prev.x) / s, y: (v.y - prev.y) / s };
   }
 
-  /** Everything the pet may paint: its sprite box with room for swinging, hopping, hearts and z's, and any words. */
-  private paintArea(v: PetView): Area {
-    const { box } = this.skin!;
+  /** Everything a pet may paint: its sprite box with room for swinging, hopping, hearts and z's, and any words. */
+  private paintArea(m: Member): Area {
+    const v = m.pet.view;
+    const { box } = m.skin;
     const w = box.w * v.scale;
     const h = box.h * v.scale;
     const pad = Math.max(w, h) * 0.6 + 80;
@@ -264,36 +384,40 @@ export class Stage {
     return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
   }
 
-  private broadcast(v: PetView, now: number): void {
-    const s = this.sent;
-    const changed =
-      v.state !== s.state || v.facing !== s.facing || v.interactive !== s.interactive || v.scale !== s.scale || v.particles.length !== s.particles;
-    const due = v.animating || changed || now - this.sentAt >= CALM_MS;
-    if (due) {
-      this.sent = { state: v.state, facing: v.facing, interactive: v.interactive, scale: v.scale, particles: v.particles.length };
-      this.sentAt = now;
-    }
-    const paint = this.paintArea(v);
-    const frame: ViewFrame = { view: v, vx: this.v.x, vy: this.v.y };
+  private broadcast(now: number): void {
+    const seen = this.members.map((m) => {
+      const v = m.pet.view;
+      const s = m.sent;
+      const changed =
+        v.state !== s.state || v.facing !== s.facing || v.interactive !== s.interactive || v.scale !== s.scale || v.particles.length !== s.particles;
+      const due = v.animating || changed || now - m.sentAt >= CALM_MS;
+      if (due) {
+        m.sent = { state: v.state, facing: v.facing, interactive: v.interactive, scale: v.scale, particles: v.particles.length };
+        m.sentAt = now;
+      }
+      const frame: ViewFrame = { id: m.id, view: v, vx: m.v.x, vy: m.v.y };
+      return { id: m.id, due, paint: this.paintArea(m), frame };
+    });
     for (const [win, st] of this.windows) {
-      const here = overlaps(paint, win.area);
-      if (here && (due || !st.hasPet)) win.send(frame);
-      else if (!here && st.hasPet) win.send(null);
-      st.hasPet = here;
+      const here = seen.filter((e) => overlaps(e.paint, win.area));
+      const present = new Set(here.map((e) => e.id));
+      const changed = present.size !== st.present.size || [...present].some((id) => !st.present.has(id));
+      // a window is told when a pet comes or goes (an empty list: nothing of ours is here now), and while any of them moves
+      if (changed || here.some((e) => e.due)) win.send(here.map((e) => e.frame));
+      st.present = present;
     }
   }
 
   /**
-   * Exactly one window takes the mouse: the one the pet was grabbed in, or while nothing is held, the one under
-   * the pointer when the pointer is on the pet. All the others let everything through.
+   * Exactly one window takes the mouse: the one a pet was grabbed in, or while nothing is held, the one under the
+   * pointer when the pointer is on a pet. All the others let everything through.
    */
   private captureMouse(c: Vec2): void {
-    const pet = this.pet;
-    if (!pet) return;
-    const v = pet.view;
-    const onPet = v.interactive && !this.deps.covered(c) && inEllipse(c, v.hitbox);
+    if (this.members.length === 0) return;
+    const covered = this.deps.covered(c);
+    const onPet = !covered && this.members.some((m) => m.pet.view.interactive && inEllipse(c, m.pet.view.hitbox));
     for (const [win, st] of this.windows) {
-      const take = this.pressed ? win === this.pressed : onPet && contains(win.area, c);
+      const take = this.pressed ? win === this.pressed.win : onPet && contains(win.area, c);
       if (take === !st.ignoring) continue;
       st.ignoring = !take;
       win.setIgnoring(!take);

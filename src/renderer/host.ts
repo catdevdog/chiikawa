@@ -15,8 +15,8 @@ export interface Host {
   onArea(cb: (a: Area) => void): void;
   /** the files of the skin in use were rewritten (the skin maker saved over it) */
   onReloadSkin(cb: () => void): void;
-  /** Electron: the pet as simulated by the main process, or null when it is not in this window */
-  onView(cb: (frame: ViewFrame | null) => void): void;
+  /** Electron: the pets as simulated by the main process that are in this window (none: nothing to draw here) */
+  onView(cb: (frames: ViewFrame[]) => void): void;
   /** harness: where the browser's pointer is */
   onCursor(cb: (p: Vec2) => void): void;
   /** Electron: a mouse button went down or up on the pet */

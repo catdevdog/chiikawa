@@ -169,6 +169,89 @@
     "lowBattery": [
       "후으으응…",
       "하아아아…"
+    ],
+    "meet": [
+      "야하!",
+      "하아?",
+      "푸루야!",
+      "우라라!",
+      {
+        "text": "치이카와~ 야하!",
+        "with": [
+          "chiikawa"
+        ]
+      },
+      {
+        "text": "우라라! 치이카와!",
+        "with": [
+          "chiikawa"
+        ]
+      },
+      {
+        "text": "하치와레! 야하!",
+        "with": [
+          "hachiware"
+        ]
+      },
+      {
+        "text": "푸루야~ 하치와레!",
+        "with": [
+          "hachiware"
+        ]
+      },
+      {
+        "text": "랏코! 하아!",
+        "with": [
+          "rakko"
+        ]
+      },
+      {
+        "text": "푸루… 랏코?",
+        "with": [
+          "rakko"
+        ]
+      }
+    ],
+    "reply": [
+      "야하~!",
+      "푸루루~",
+      "하아!",
+      {
+        "text": "치이카와! 우라라!",
+        "with": [
+          "chiikawa"
+        ]
+      },
+      {
+        "text": "야핫! 치이카와!",
+        "with": [
+          "chiikawa"
+        ]
+      },
+      {
+        "text": "하치와레! 야하하!",
+        "with": [
+          "hachiware"
+        ]
+      },
+      {
+        "text": "푸루야! 하치와레!",
+        "with": [
+          "hachiware"
+        ]
+      },
+      {
+        "text": "랏코! 하아…!",
+        "with": [
+          "rakko"
+        ]
+      },
+      {
+        "text": "우라… 랏코!",
+        "with": [
+          "rakko"
+        ]
+      }
     ]
   },
   "actions": {

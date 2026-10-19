@@ -3,7 +3,7 @@ import { mulberry32, type Vec2 } from '../src/engine';
 import { DEFAULT_SETTINGS, type Area, type Settings, type SkinReport, type ViewFrame } from '../src/shared/types';
 import { Stage, type StageWindow } from '../src/shell/stage';
 
-const GEOMETRY: SkinReport = { box: { w: 128, h: 128, anchorX: 0.5, anchorY: 0.94 }, hitbox: { x: 0.18, y: 0.22, w: 0.64, h: 0.72 }, lines: {}, actions: {} };
+const GEOMETRY: SkinReport = { id: 'default', box: { w: 128, h: 128, anchorX: 0.5, anchorY: 0.94 }, hitbox: { x: 0.18, y: 0.22, w: 0.64, h: 0.72 }, lines: {}, actions: {} };
 const SETTINGS: Settings = { ...DEFAULT_SETTINGS, mode: 'wander', roam: 'floor', skin: 'default' };
 
 // two monitors side by side; the right one is taller, so its floor is lower
@@ -13,17 +13,25 @@ const RIGHT: Area = { x: 1280, y: 0, width: 1024, height: 768 };
 class FakeWindow implements StageWindow {
   ignoring = true;
   toggles = 0;
+  /** what each message held: the first pet of it, or null for the empty list that clears the window */
   frames: (ViewFrame | null)[] = [];
+  /** every message, whole */
+  lists: ViewFrame[][] = [];
   constructor(readonly area: Area) {}
   setIgnoring(ignore: boolean): void {
     this.ignoring = ignore;
     this.toggles++;
   }
-  send(frame: ViewFrame | null): void {
-    this.frames.push(frame ? structuredClone(frame) : null);
+  send(frames: ViewFrame[]): void {
+    const copy = structuredClone(frames);
+    this.lists.push(copy);
+    this.frames.push(copy[0] ?? null);
   }
   get last(): ViewFrame | null {
     return this.frames.at(-1) ?? null;
+  }
+  get lastList(): ViewFrame[] {
+    return this.lists.at(-1) ?? [];
   }
 }
 
@@ -381,7 +389,7 @@ describe('the screens change', () => {
   it('follows a new skin size', () => {
     const { run, stage } = setup([LEFT]);
     run(50);
-    stage.setSkin({ box: { w: 256, h: 256, anchorX: 0.5, anchorY: 0.9 }, hitbox: { x: 0.2, y: 0.2, w: 0.6, h: 0.75 }, lines: {}, actions: {} });
+    stage.setSkin({ id: 'default', box: { w: 256, h: 256, anchorX: 0.5, anchorY: 0.9 }, hitbox: { x: 0.2, y: 0.2, w: 0.6, h: 0.75 }, lines: {}, actions: {} });
     run(32);
     const r = stage.view!.hitbox;
     expect(r.w).toBeCloseTo(256 * 0.6);
@@ -581,5 +589,258 @@ describe('actions', () => {
     expect(t.stage.perform()).toBe(false);
     t.stage.setHidden(false);
     expect(t.stage.perform()).toBe(true);
+  });
+});
+
+describe('friends', () => {
+  const skinOf = (id: string, over: Partial<SkinReport> = {}): SkinReport => ({ ...GEOMETRY, id, ...over });
+  const WORDS = (id: string): SkinReport =>
+    skinOf(id, {
+      lines: {
+        meet: [{ text: `${id} says hi`, style: 'hold' }],
+        reply: [{ text: `${id} says hi back`, style: 'hold' }],
+      },
+    });
+
+  /** a stage whose main character is `main`, with the skins of `known` already loaded */
+  function many(main: string, friends: string[], known: string[] = [main, ...friends], areas: Area[] = [LEFT]) {
+    const settings: Settings = { ...SETTINGS, skin: main, friends };
+    const t = setup(areas, settings);
+    // `setup` knows only the default skin: bring the stage to the one this test is about
+    t.stage.setSkin(skinOf(main));
+    for (const id of known) t.stage.setSkin(WORDS(id));
+    return { ...t, settings };
+  }
+  const ids = (t: { stage: Stage }): string[] => t.stage.views.map((v) => v.id);
+
+  it('has a pet for the main character and one for each friend whose skin is up', () => {
+    const t = many('chiikawa', ['hachiware', 'usagi'], ['chiikawa', 'hachiware']);
+    t.run(100);
+    expect(ids(t)).toEqual(['chiikawa', 'hachiware']);
+    t.stage.setSkin(WORDS('usagi'));
+    expect(ids(t)).toEqual(['chiikawa', 'hachiware', 'usagi']);
+    expect(t.stage.view).toBe(t.stage.views[0]!.view);
+  });
+
+  it('starts the friends apart from the main character and from each other', () => {
+    const t = many('chiikawa', ['hachiware', 'usagi']);
+    t.run(32);
+    const xs = t.stage.views.map((v) => Math.round(v.view.x));
+    expect(new Set(xs).size).toBe(3);
+    expect(xs[0]).toBe(Math.round(LEFT.width / 2));
+    for (const v of t.stage.views) expect(v.view.y).toBe(LEFT.height);
+  });
+
+  it('does not put a friend down on top of another, whatever order their skins arrive in', () => {
+    const t = many('chiikawa', ['hachiware', 'usagi'], ['chiikawa', 'usagi', 'hachiware']);
+    t.run(32);
+    const xs = t.stage.views.map((v) => v.view.x);
+    expect(xs).toHaveLength(3);
+    for (let i = 0; i < xs.length; i++) {
+      for (let j = i + 1; j < xs.length; j++) expect(Math.abs(xs[i]! - xs[j]!), `${i} and ${j}`).toBeGreaterThan(120);
+    }
+    // and two that are chosen at the same moment get places of their own as well
+    const u = many('chiikawa', [], ['chiikawa', 'hachiware', 'usagi', 'rakko']);
+    u.stage.setSettings({ ...u.settings, friends: ['hachiware', 'usagi', 'rakko'] });
+    u.run(32);
+    const ys = u.stage.views.map((v) => v.view.x);
+    expect(new Set(ys.map((x) => Math.round(x / 100))).size).toBe(4);
+  });
+
+  it('puts a friend in as soon as it is chosen, and takes it out as soon as it is not', () => {
+    const t = many('chiikawa', [], ['chiikawa', 'hachiware', 'usagi']);
+    t.run(100);
+    expect(ids(t)).toEqual(['chiikawa']);
+    t.stage.setSettings({ ...t.settings, friends: ['usagi'] });
+    expect(ids(t)).toEqual(['chiikawa', 'usagi']);
+    t.stage.setSettings({ ...t.settings, friends: ['hachiware', 'usagi'] });
+    expect(ids(t)).toEqual(['chiikawa', 'hachiware', 'usagi']);
+    t.stage.setSettings({ ...t.settings, friends: [] });
+    expect(ids(t)).toEqual(['chiikawa']);
+    // the window is told that they have gone
+    t.run(100);
+    expect(t.wins[0]!.lastList.map((f) => f.id)).toEqual(['chiikawa']);
+  });
+
+  it('tells a window about exactly the pets that are in it', () => {
+    const t = many('chiikawa', ['hachiware'], undefined, [LEFT, RIGHT]);
+    t.run(200);
+    expect(t.wins[0]!.lastList.map((f) => f.id)).toEqual(['chiikawa', 'hachiware']);
+    expect(t.wins[1]!.lists).toEqual([]);
+    // every pet in a message comes with its own id, its look and its speed
+    for (const f of t.wins[0]!.lastList) expect(f.view.x).toBeGreaterThan(0);
+  });
+
+  it('changes the clothes of the main character without moving it', () => {
+    const t = many('chiikawa', ['hachiware']);
+    t.run(3000);
+    const at = t.stage.view!.x;
+    t.stage.setSettings({ ...t.settings, skin: 'usagi', friends: ['hachiware'] });
+    t.stage.setSkin(WORDS('usagi'));
+    expect(ids(t)).toEqual(['usagi', 'hachiware']);
+    expect(Math.abs(t.stage.view!.x - at)).toBeLessThan(40);
+  });
+
+  it('turns a friend into the main character, and the friend is gone as a friend', () => {
+    const t = many('chiikawa', ['hachiware', 'usagi']);
+    t.run(100);
+    t.stage.setSettings({ ...t.settings, skin: 'hachiware', friends: ['usagi'] });
+    expect(ids(t)).toEqual(['hachiware', 'usagi']);
+  });
+
+  it('keeps the old main character until the skin of the new one is up', () => {
+    const t = many('chiikawa', [], ['chiikawa']);
+    t.run(100);
+    t.stage.setSettings({ ...t.settings, skin: 'usagi' });
+    expect(ids(t)).toEqual(['chiikawa']);
+    t.stage.setSkin(WORDS('usagi'));
+    expect(ids(t)).toEqual(['usagi']);
+  });
+
+  it('lets the mouse be about the main character only: with the pet stuck to the cursor the friends are not', () => {
+    const t = many('chiikawa', ['hachiware', 'usagi']);
+    t.stage.setSettings({ ...t.settings, mode: 'attach' });
+    t.env.cursor = { x: 300, y: 300 };
+    t.run(800);
+    const states = Object.fromEntries(t.stage.views.map((v) => [v.id, v.view.state]));
+    expect(states.chiikawa).toBe('held');
+    expect(states.hachiware).not.toBe('held');
+    expect(states.usagi).not.toBe('held');
+  });
+
+  describe('the mouse', () => {
+    it('grabs the friend that is pressed, and only that one', () => {
+      const t = many('chiikawa', ['hachiware']);
+      t.run(300);
+      const friend = t.stage.views[1]!;
+      const spot = { x: friend.view.hitbox.x + friend.view.hitbox.w / 2, y: friend.view.hitbox.y + friend.view.hitbox.h / 2 };
+      t.press(t.wins[0]!, spot);
+      t.drag(spot, { x: spot.x, y: spot.y - 200 });
+      const states = Object.fromEntries(t.stage.views.map((v) => [v.id, v.view.state]));
+      expect(states.hachiware).toBe('held');
+      expect(states.chiikawa).not.toBe('held');
+      t.release(t.wins[0]!, { x: spot.x, y: spot.y - 200 });
+    });
+
+    it('gives a press where two pets overlap to the one that stands lower (in front)', () => {
+      const t = many('chiikawa', ['hachiware']);
+      t.run(300);
+      // lift the main one to the friend's place, a little higher up: the friend is in front there
+      const a = t.stage.views[0]!;
+      const b = t.stage.views[1]!;
+      const spot = { x: (b.view.hitbox.x + b.view.hitbox.w / 2 + (a.view.hitbox.x + a.view.hitbox.w / 2)) / 2, y: b.view.hitbox.y + b.view.hitbox.h / 2 };
+      // stand them on the same spot by dragging the main character over
+      const grab = { x: a.view.hitbox.x + a.view.hitbox.w / 2, y: a.view.hitbox.y + a.view.hitbox.h / 2 };
+      t.press(t.wins[0]!, grab);
+      t.drag(grab, { x: spot.x, y: spot.y - 20 });
+      expect(t.stage.views[0]!.view.state).toBe('held');
+      t.release(t.wins[0]!, { x: spot.x, y: spot.y - 20 });
+      t.run(1500);
+      // now both stand in about the same place; the one with the larger y is in front and takes the press
+      const [p, q] = t.stage.views;
+      const front = p!.view.y >= q!.view.y ? p! : q!;
+      const at = { x: front.view.hitbox.x + front.view.hitbox.w / 2, y: front.view.hitbox.y + front.view.hitbox.h / 2 };
+      const overlapping = t.stage.views.every((v) => Math.hypot(v.view.hitbox.x + v.view.hitbox.w / 2 - at.x, v.view.hitbox.y + v.view.hitbox.h / 2 - at.y) < 120);
+      if (!overlapping) return;
+      t.press(t.wins[0]!, at);
+      t.drag(at, { x: at.x, y: at.y - 150 });
+      const held = t.stage.views.filter((v) => v.view.state === 'held').map((v) => v.id);
+      expect(held).toEqual([front.id]);
+      t.release(t.wins[0]!, { x: at.x, y: at.y - 150 });
+    });
+
+    it('takes the mouse for the window under the pointer when it is on any pet', () => {
+      const t = many('chiikawa', ['hachiware'], undefined, [LEFT, RIGHT]);
+      t.run(300);
+      const friend = t.stage.views[1]!;
+      t.env.cursor = { x: friend.view.hitbox.x + friend.view.hitbox.w / 2, y: friend.view.hitbox.y + friend.view.hitbox.h / 2 };
+      t.run(48);
+      expect(t.wins[0]!.ignoring).toBe(false);
+      expect(t.wins[1]!.ignoring).toBe(true);
+      t.env.cursor = { x: 5, y: 5 };
+      t.run(48);
+      expect(t.wins.every((w) => w.ignoring)).toBe(true);
+    });
+
+    it('does not let a click on one pet startle the other', () => {
+      const t = many('chiikawa', ['hachiware']);
+      t.run(300);
+      const friend = t.stage.views[1]!;
+      const spot = { x: friend.view.hitbox.x + friend.view.hitbox.w / 2, y: friend.view.hitbox.y + friend.view.hitbox.h / 2 };
+      t.press(t.wins[0]!, spot);
+      t.release(t.wins[0]!, spot);
+      t.run(32);
+      const states = Object.fromEntries(t.stage.views.map((v) => [v.id, v.view.state]));
+      expect(states.hachiware).toBe('surprised');
+      expect(states.chiikawa).not.toBe('surprised');
+    });
+  });
+
+  it('puts all of them away, brings all of them back with a greeting, and calls them all', () => {
+    const base = WORDS('chiikawa');
+    const greet = (id: string): SkinReport => ({ ...WORDS(id), lines: { ...WORDS(id).lines, start: [{ text: `${id} hello`, style: 'float' }], call: [{ text: `${id} coming`, style: 'float' }] } });
+    const t = many('chiikawa', ['hachiware'], []);
+    t.stage.setSkin({ ...base, ...greet('chiikawa') });
+    t.stage.setSkin(greet('hachiware'));
+    t.run(3000);
+    t.stage.setHidden(true);
+    expect(t.wins[0]!.lastList).toEqual([]);
+    t.run(1000);
+    t.env.cursor = { x: 1000, y: 500 };
+    t.stage.setHidden(false);
+    t.run(300);
+    const said = (): string[] => t.wins[0]!.lastList.flatMap((f) => f.view.particles.filter((p) => p.kind === 'text').map((p) => p.text!));
+    expect(said().sort()).toEqual(['chiikawa hello', 'hachiware hello']);
+    t.run(4000);
+    t.stage.call();
+    const seen = new Set<string>();
+    for (let i = 0; i < 400; i++) {
+      t.run(16);
+      for (const w of said()) seen.add(w);
+    }
+    expect(seen.has('chiikawa coming')).toBe(true);
+    expect(seen.has('hachiware coming')).toBe(true);
+  });
+
+  it('shows a trick from each of them, or from the main character by name', () => {
+    const act = { pose: 'a', ms: 2000, weight: 1, motion: 'still' as const, on: [], lines: [] };
+    const t = many('chiikawa', ['hachiware', 'usagi'], []);
+    t.stage.setSkin(skinOf('chiikawa', { actions: { dance: { ...act, pose: 'dance' } } }));
+    t.stage.setSkin(skinOf('hachiware', { actions: { snap: { ...act, pose: 'snap' } } }));
+    t.stage.setSkin(skinOf('usagi'));
+    t.run(100);
+    expect(t.stage.hasActions).toBe(true);
+    expect(t.stage.perform('snap')).toBe(false);
+    expect(t.stage.perform('dance')).toBe(true);
+    t.run(32);
+    expect(t.stage.views.map((v) => v.view.action)).toEqual(['dance', null, null]);
+    t.run(2600);
+    expect(t.stage.perform()).toBe(true);
+    t.run(32);
+    expect(t.stage.views.map((v) => v.view.action)).toEqual(['dance', 'snap', null]);
+  });
+
+  it('tells every pet what happened on the computer', () => {
+    const welcome = (id: string): SkinReport => skinOf(id, { lines: { welcome: [{ text: `${id} welcome`, style: 'float' }] } });
+    const t = many('chiikawa', ['hachiware'], []);
+    t.stage.setSkin(welcome('chiikawa'));
+    t.stage.setSkin(welcome('hachiware'));
+    t.run(3000);
+    t.stage.notice('welcome');
+    t.run(32);
+    const said = t.wins[0]!.lastList.flatMap((f) => f.view.particles.filter((p) => p.kind === 'text').map((p) => p.text!));
+    expect(said.sort()).toEqual(['chiikawa welcome', 'hachiware welcome']);
+  });
+
+  it('has friends greet each other when they meet, each with its own words', () => {
+    const t = many('chiikawa', ['hachiware']);
+    const said = new Set<string>();
+    for (let i = 0; i < 20_000; i++) {
+      t.run(16);
+      for (const f of t.wins[0]!.lastList) for (const p of f.view.particles) if (p.kind === 'text') said.add(p.text!);
+      if (said.has('chiikawa says hi back') || said.has('hachiware says hi back')) break;
+    }
+    expect([...said].some((w) => /says hi$/.test(w))).toBe(true);
+    expect([...said].some((w) => /says hi back$/.test(w))).toBe(true);
   });
 });

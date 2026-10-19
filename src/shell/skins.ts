@@ -115,7 +115,12 @@ counts as a sentence; "style" ("float" or "hold") decides it by hand.
 Situations: start, hover, click, rub, triple, pickup, throw, land, flee, follow, attach,
 idle, sit, sleep, wake, cross (walking over to another monitor), call (called over with the
 tray or Ctrl+Alt+Shift+C), welcome (the user is back: unlock, wake from sleep), plug, unplug
-(the charger goes in or out), lowBattery.
+(the charger goes in or out), lowBattery, meet (greeting a friend that came close), reply (answering
+a friend's greeting).
+
+meet and reply lines can be meant for one friend only, by the folder name of its skin:
+  "meet": ["Hi!", { "text": "Oh, it's you!", "with": ["usagi"] }]
+Lines meant for the friend that is met are used when there are any; otherwise the lines without "with".
 
 Actions (optional): short shows with pictures of their own, now and then or for a situation.
 Put the pictures in "poses" and list them:
@@ -140,7 +145,10 @@ unplug, lowBattery, call) that do it instead of the plain reaction. The skin mak
 떠올랐다 사라지고, 문장은 머리 위에 잠깐 떠 있다 사라져요. "style"("float"/"hold")로 직접 정할
 수 있고, 글자 색은 "textColor"예요. 상황: start, hover, click, rub, triple, pickup, throw, land,
 flee, follow, attach, idle, sit, sleep, wake, cross(다른 모니터로 건너갈 때), call(불렀을 때),
-welcome(자리로 돌아왔을 때: 잠금 해제·절전 복귀), plug·unplug(충전기를 꽂고 뺄 때), lowBattery(배터리 부족).
+welcome(자리로 돌아왔을 때: 잠금 해제·절전 복귀), plug·unplug(충전기를 꽂고 뺄 때), lowBattery(배터리 부족),
+meet(다가온 친구에게 하는 인사), reply(친구의 인사에 하는 대답).
+meet·reply 줄에 "with": ["usagi"]처럼 친구 스킨의 폴더 이름을 적으면 그 친구에게만 하는 말이 돼요. 그 친구를 위한
+줄이 있으면 그 줄만, 없으면 "with" 없는 줄을 써요.
 트레이 메뉴 "대사"에서 끄거나 반응할 때만 말하게 할 수 있어요.
 
 재롱(선택): "actions"에 적으면 펫이 가끔, 또는 어떤 상황에서 그림으로 짧은 행동을 해요. 그림은 "poses"에

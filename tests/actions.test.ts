@@ -106,7 +106,7 @@ describe('actions in a manifest', () => {
 });
 
 describe('actions in a skin report', () => {
-  const report = { box: { w: 128, h: 140, anchorX: 0.5, anchorY: 0.94 }, hitbox: { x: 0.18, y: 0.22, w: 0.64, h: 0.72 } };
+  const report = { id: 'usagi', box: { w: 128, h: 140, anchorX: 0.5, anchorY: 0.94 }, hitbox: { x: 0.18, y: 0.22, w: 0.64, h: 0.72 } };
 
   it('come along with the skin', () => {
     const actions = parseActions({ camera: { ms: 3000 } });

@@ -8,7 +8,7 @@ export interface BuddyHostApi {
   init(): Promise<InitInfo>;
   onSettings(cb: (s: Settings) => void): void;
   onArea(cb: (a: Area) => void): void;
-  onView(cb: (frame: ViewFrame | null) => void): void;
+  onView(cb: (frames: ViewFrame[]) => void): void;
   onReloadSkin(cb: () => void): void;
   pointer(report: PointerReport): void;
   reportSkin(skin: SkinReport): void;

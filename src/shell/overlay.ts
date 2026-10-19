@@ -106,8 +106,8 @@ export class Overlay implements StageWindow {
     if (this.alive) this.win.setIgnoreMouseEvents(ignore, { forward: true });
   }
 
-  send(frame: ViewFrame | null): void {
-    this.tell(IPC.view, frame);
+  send(frames: ViewFrame[]): void {
+    this.tell(IPC.view, frames);
   }
 
   /** Sends to the page once it is up. */

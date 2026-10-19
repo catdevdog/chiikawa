@@ -91,7 +91,9 @@ export type SayEvent =
   | 'welcome'
   | 'plug'
   | 'unplug'
-  | 'lowBattery';
+  | 'lowBattery'
+  | 'meet'
+  | 'reply';
 
 /** What happens on the computer that the pet notices: the user is back, the charger goes in or out, the battery runs low. */
 export type NoticeEvent = 'welcome' | 'plug' | 'unplug' | 'lowBattery';
@@ -144,11 +146,24 @@ export const SAY_EVENTS: readonly SayEvent[] = [
   'plug',
   'unplug',
   'lowBattery',
+  'meet',
+  'reply',
 ];
 
 export interface Line {
   text: string;
   style: SayStyle;
+  /** only said to (or about) these friends, by skin id; for `meet` and `reply`. A line without it is for anyone. */
+  with?: string[];
+}
+
+/** Another pet living on the same screens, as a pet sees it. */
+export interface Peer {
+  id: string;
+  /** feet position */
+  x: number;
+  y: number;
+  state: PetState;
 }
 
 /** What a skin says, by situation. */
