@@ -136,26 +136,26 @@ unplug, lowBattery, call) that do it instead of the plain reaction. The skin mak
 
 스킨 폴더 사용법
 ================
-위처럼 스킨마다 폴더를 만들고 manifest.json과 이미지(idle은 필수)를 넣으세요.
+위와 같이 스킨마다 폴더를 만들고 manifest.json과 이미지(idle은 필수)를 넣으면 됩니다.
 없는 포즈는 비슷한 포즈로, 최종적으로는 idle로 대체됩니다.
-트레이 메뉴에서 캐릭터(스킨)를 고를 수 있어요. 메뉴에는 "name"이 보이고, 한국어 이름을 따로
-보이고 싶으면 "names": { "ko": "토끼" }를 넣으세요.
+트레이 메뉴에서 캐릭터(스킨)를 고를 수 있습니다. 메뉴에는 "name"이 보이고, 한국어 이름을 따로
+보이게 하려면 "names": { "ko": "토끼" }를 넣으면 됩니다.
 
-대사(선택): manifest.json에 "lines"를 넣으면 상황마다 말을 해요. 짧은 소리는 z처럼 위로
-떠올랐다 사라지고, 문장은 머리 위에 잠깐 떠 있다 사라져요. "style"("float"/"hold")로 직접 정할
-수 있고, 글자 색은 "textColor"예요. 상황: start, hover, click, rub, triple, pickup, throw, land,
+대사(선택): manifest.json에 "lines"를 넣으면 상황마다 말을 합니다. 짧은 소리는 z처럼 위로
+떠올랐다 사라지고, 문장은 머리 위에 잠깐 떠 있다 사라집니다. "style"("float" 또는 "hold")로 직접 정할
+수 있고, 글자 색은 "textColor"입니다. 상황은 start, hover, click, rub, triple, pickup, throw, land,
 flee, follow, attach, idle, sit, sleep, wake, cross(다른 모니터로 건너갈 때), call(불렀을 때),
-welcome(자리로 돌아왔을 때: 잠금 해제·절전 복귀), plug·unplug(충전기를 꽂고 뺄 때), lowBattery(배터리 부족),
-meet(다가온 친구에게 하는 인사), reply(친구의 인사에 하는 대답).
-meet·reply 줄에 "with": ["usagi"]처럼 친구 스킨의 폴더 이름을 적으면 그 친구에게만 하는 말이 돼요. 그 친구를 위한
-줄이 있으면 그 줄만, 없으면 "with" 없는 줄을 써요.
-트레이 메뉴 "대사"에서 끄거나 반응할 때만 말하게 할 수 있어요.
+welcome(자리로 돌아왔을 때로, 잠금 해제와 절전 복귀가 해당됩니다), plug와 unplug(충전기를 꽂고 뺄 때), lowBattery(배터리 부족),
+meet(다가온 친구에게 하는 인사), reply(친구의 인사에 하는 대답)입니다.
+meet와 reply 줄에 "with": ["usagi"]처럼 친구 스킨의 폴더 이름을 적으면 그 친구에게만 하는 말이 됩니다. 그 친구를 위한
+줄이 있으면 그 줄만 쓰고, 없으면 "with"가 없는 줄을 씁니다.
+트레이 메뉴의 "대사"에서 끄거나 반응할 때만 말하게 할 수 있습니다.
 
-재롱(선택): "actions"에 적으면 펫이 가끔, 또는 어떤 상황에서 그림으로 짧은 행동을 해요. 그림은 "poses"에
-다른 포즈처럼 넣고 이렇게 적어요: "actions": { "camera": { "pose": "camera", "ms": 3600, "motion": "still",
-"say": ["찰칵!"] } }. ms는 길이(800~20000), weight는 확률 비율, motion은 정지 그림을 움직이는 방법
+재롱(선택): "actions"에 적으면 펫이 가끔, 또는 어떤 상황에서 그림으로 짧은 행동을 합니다. 그림은 "poses"에
+다른 포즈처럼 넣고 이렇게 적습니다: "actions": { "camera": { "pose": "camera", "ms": 3600, "motion": "still",
+"say": ["찰칵!"] } }. ms는 길이(800~20000), weight는 확률의 비율, motion은 정지 그림을 움직이는 방법
 (bounce, sway, still, 그림이 스스로 움직이면 off), on은 일반 반응 대신 이 재롱을 하는 상황(welcome, plug,
-unplug, lowBattery, call)이에요. 스킨 메이커에서는 포즈를 "재롱 1~4"로 고르면 만들어져요.
+unplug, lowBattery, call)입니다. 스킨 메이커에서는 포즈를 "재롱 1~4"로 고르면 만들어집니다.
 `;
 
 /** Creates the user skin folder with a short how-to so "open skin folder" is not an empty mystery. */

@@ -7,31 +7,31 @@ import { announcement, compareVersions, headline, parseChangelog, summarize } fr
 const ROOT = path.resolve(__dirname, '..');
 const SAMPLE = `# 바뀐 점
 
-머리말에 있는 - 줄은 어느 버전의 것도 아니에요.
+머리말에 있는 - 줄은 어느 버전의 것도 아닙니다.
 - 머리말 줄
 
 ## 0.3.2
 
-- 펫 부르기 — 트레이 메뉴나 단축키로 불러요
-- 잠깐 숨기기
+- 펫을 부를 수 있습니다. 트레이 메뉴나 단축키로 부릅니다.
+- 펫을 잠깐 숨길 수 있습니다.
 
 ## 0.3.1
-* 앱이 스스로 업데이트
+* 앱이 스스로 업데이트합니다.
 
 ## 설명
-- 이 줄은 버전의 것이 아니에요
+- 이 줄은 버전의 것이 아닙니다.
 
 ## v0.3.0
 
-- 말하는 캐릭터 — 자세히
+- 캐릭터가 말을 합니다. 자세한 설명이 이어집니다.
 `;
 
 describe('parseChangelog', () => {
   it('reads a heading per version and the bullets under it', () => {
     expect(parseChangelog(SAMPLE)).toEqual([
-      { version: '0.3.2', changes: ['펫 부르기 — 트레이 메뉴나 단축키로 불러요', '잠깐 숨기기'] },
-      { version: '0.3.1', changes: ['앱이 스스로 업데이트'] },
-      { version: '0.3.0', changes: ['말하는 캐릭터 — 자세히'] },
+      { version: '0.3.2', changes: ['펫을 부를 수 있습니다. 트레이 메뉴나 단축키로 부릅니다.', '펫을 잠깐 숨길 수 있습니다.'] },
+      { version: '0.3.1', changes: ['앱이 스스로 업데이트합니다.'] },
+      { version: '0.3.0', changes: ['캐릭터가 말을 합니다. 자세한 설명이 이어집니다.'] },
     ]);
   });
 
@@ -81,17 +81,34 @@ describe('announcement', () => {
   });
 });
 
-describe('summarize', () => {
-  it('lists the headlines, newest first', () => {
-    const entries = parseChangelog(SAMPLE).slice(0, 2);
-    expect(headline('펫 부르기 — 트레이 메뉴나 단축키로 불러요')).toBe('펫 부르기');
-    expect(summarize(entries)).toBe('· 펫 부르기\n· 잠깐 숨기기\n· 앱이 스스로 업데이트');
+describe('headline', () => {
+  it('is the first sentence of a change', () => {
+    expect(headline('펫을 부를 수 있습니다. 트레이 메뉴나 단축키로 부릅니다.')).toBe('펫을 부를 수 있습니다.');
+    expect(headline('  펫을 숨깁니다.   ')).toBe('펫을 숨깁니다.');
   });
 
-  it('says how many more there are instead of running long', () => {
-    const many = [{ version: '1.0.0', changes: ['가', '나', '다', '라', '마', '바'] }];
-    expect(summarize(many, 4)).toBe('· 가\n· 나\n· 다\n… 외 3가지');
-    expect(summarize([{ version: '1.0.0', changes: ['가', '나', '다', '라'] }], 4)).toBe('· 가\n· 나\n· 다\n· 라');
+  it('is the whole change when it is one sentence, or has no full stop at all', () => {
+    expect(headline('펫을 잠깐 숨길 수 있습니다.')).toBe('펫을 잠깐 숨길 수 있습니다.');
+    expect(headline('마침표가 없는 줄')).toBe('마침표가 없는 줄');
+    expect(headline('')).toBe('');
+  });
+
+  it('does not stop at a dot inside a word, such as a version number', () => {
+    expect(headline('0.3.1을 설치합니다. 그다음 업데이트합니다.')).toBe('0.3.1을 설치합니다.');
+    expect(headline('Ctrl+Alt+Shift+C로 부릅니다.')).toBe('Ctrl+Alt+Shift+C로 부릅니다.');
+  });
+});
+
+describe('summarize', () => {
+  it('lists the first sentences, newest first', () => {
+    const entries = parseChangelog(SAMPLE).slice(0, 2);
+    expect(summarize(entries)).toBe('- 펫을 부를 수 있습니다.\n- 펫을 잠깐 숨길 수 있습니다.\n- 앱이 스스로 업데이트합니다.');
+  });
+
+  it('says how many more there are instead of running long, in a sentence of its own', () => {
+    const many = [{ version: '1.0.0', changes: ['가.', '나.', '다.', '라.', '마.', '바.'] }];
+    expect(summarize(many, 4)).toBe('- 가.\n- 나.\n- 다.\n외 3가지가 더 있습니다.');
+    expect(summarize([{ version: '1.0.0', changes: ['가.', '나.', '다.', '라.'] }], 4)).toBe('- 가.\n- 나.\n- 다.\n- 라.');
   });
 });
 
@@ -113,9 +130,13 @@ describe('CHANGELOG.md of this repository', () => {
     for (const e of entries) for (const c of e.changes) expect(headline(c).length, `${e.version}: ${c}`).toBeGreaterThan(0);
   });
 
-  it('keeps the headlines short enough for a notification', () => {
+  it('keeps the first sentences short enough for a notification', () => {
     const entry = entries.find((e) => e.version === version)!;
-    for (const c of entry.changes) expect([...headline(c)].length, c).toBeLessThanOrEqual(24);
+    for (const c of entry.changes) expect([...headline(c)].length, c).toBeLessThanOrEqual(36);
+  });
+
+  it('writes every change as sentences that end with "다."', () => {
+    for (const e of entries) for (const c of e.changes) expect(c, `${e.version}: ${c}`).toMatch(/다\.$/);
   });
 });
 
@@ -125,12 +146,12 @@ describe('scripts/release-notes.mjs', () => {
   it('prints the changes of a version as the body of its release', () => {
     const out = execFileSync(process.execPath, [path.join(ROOT, 'scripts', 'release-notes.mjs'), '0.3.1'], { encoding: 'utf8' });
     expect(out).toContain('## 바뀐 점');
-    expect(out).toContain('- 앱이 스스로 업데이트');
-    expect(out).not.toContain('말하는 캐릭터');
+    expect(out).toContain('- 앱이 스스로 업데이트합니다.');
+    expect(out).not.toContain('캐릭터가 말을 합니다');
   });
 
   it('accepts a tag name too', () => {
-    expect(run('v0.3.1').stdout).toContain('- 앱이 스스로 업데이트');
+    expect(run('v0.3.1').stdout).toContain('- 앱이 스스로 업데이트합니다.');
   });
 
   it('refuses a version with nothing written about it, so a release cannot go out empty', () => {
