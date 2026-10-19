@@ -94,14 +94,25 @@ export function createUpdates(onChange: () => void): Updates {
   let mode = updateMode({ packaged: app.isPackaged, platform: process.platform, installed: installedBuild() });
   let controller: UpdateController | null = null;
   let background = false;
+  let startFailed = false;
 
   const start = (): UpdateController => {
     const c = new UpdateController({ port: realPort(), onChange, onReady: announceReady, log });
     c.setBackground(background);
     return c;
   };
-  if (mode === 'auto') controller = start();
-  log('info', `updates: ${mode}${mode === 'auto' ? '' : app.isPackaged ? ' (not an installed Windows build)' : ' (development run)'}`);
+  if (mode === 'auto') {
+    try {
+      controller = start();
+    } catch (err) {
+      // a broken updater must never keep the pet from starting; the menu still points at the releases page
+      log('error', `could not start the updater: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
+      mode = 'link';
+      startFailed = true;
+    }
+  }
+  const why = mode === 'auto' ? '' : startFailed ? ' (the updater did not start)' : app.isPackaged ? ' (not an installed Windows build)' : ' (development run)';
+  log('info', `updates: ${mode}${why}`);
 
   return {
     get mode() {
