@@ -6,6 +6,11 @@ on:
     tags: ['v*']
   pull_request:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Publish a GitHub release with this tag (for example v0.1.0). Leave empty to only build.'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -51,13 +56,15 @@ jobs:
             release/DesktopBuddy-Setup.exe
             release/DesktopBuddy-Portable.zip
           if-no-files-found: error
-      # pushing a tag like v0.1.0 publishes the installer and the portable zip as a GitHub release
+      # pushing a tag like v0.1.0, or running this workflow by hand with release_tag set, publishes the
+      # installer and the portable zip as a GitHub release (a manual run creates the tag on this commit)
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && startsWith(inputs.release_tag, 'v'))
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release_tag || github.ref_name }}
         run: >
-          gh release create "$GITHUB_REF_NAME"
+          gh release create "$TAG"
           release/DesktopBuddy-Setup.exe release/DesktopBuddy-Portable.zip
-          --title "$GITHUB_REF_NAME" --generate-notes
+          --title "$TAG" --generate-notes --target "$GITHUB_SHA"

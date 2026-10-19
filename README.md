@@ -12,16 +12,19 @@
   </a>
 </p>
 
-> 버튼이 안 열리면 [Releases](https://github.com/catdevdog/chiikawa/releases) 페이지에서 받으세요.
+> 정식 릴리스(`v0.1.0`)는 아직 안 올렸어요. 그래서 위 버튼은 아직 안 열리고, 지금은 아래 방법으로 받아요.
 
 ## 다운로드와 설치 (Windows 10 / 11, 64비트)
 
-1. 위의 **설치 파일(.exe)** 버튼을 눌러 받아요. 설치가 싫으면 **포터블 zip**을 받아서 풀고 `Desktop Buddy.exe`를 실행하세요.
-2. 설치 파일을 실행하면 바로 설치되고 시작돼요.
-3. 처음 실행할 때 Windows가 "PC를 보호했습니다" 화면을 띄울 수 있어요. 코드 서명을 안 한 앱이라서 그래요. **추가 정보 → 실행**을 누르면 돼요.
-4. 펫은 주 모니터에 나타나고, 작업 표시줄 오른쪽 아래(숨겨진 아이콘 `^` 안일 수 있어요)에 트레이 아이콘이 생겨요.
+지금은 GitHub Actions 빌드에서 받아요.
 
-가장 최근 빌드(아직 릴리스가 안 된 변경 포함)는 [Actions](https://github.com/catdevdog/chiikawa/actions/workflows/build.yml)에서 초록 체크가 붙은 맨 위 항목을 열고, 아래 Artifacts의 `windows`를 받으면 돼요. GitHub 로그인이 필요하고 90일 뒤에 지워져요.
+1. [빌드 목록](https://github.com/catdevdog/chiikawa/actions/workflows/build.yml)을 열고 맨 위에 있는 초록 체크가 붙은 항목을 눌러요. (GitHub 로그인이 필요해요)
+2. 아래로 내려가서 **Artifacts**의 `windows`를 받아요. 260MB쯤 되는 zip이에요.
+3. 압축을 풀면 `DesktopBuddy-Setup.exe`(설치 파일)와 `DesktopBuddy-Portable.zip`(포터블)이 나와요. 설치 파일을 실행하면 바로 설치되고 시작돼요. 설치가 싫으면 포터블 zip을 풀어서 `Desktop Buddy.exe`를 실행하세요.
+4. 처음 실행할 때 Windows가 "PC를 보호했습니다" 화면을 띄울 수 있어요. 코드 서명을 안 한 앱이라서 그래요. **추가 정보 → 실행**을 누르면 돼요.
+5. 펫은 주 모니터에 나타나고, 작업 표시줄 오른쪽 아래(숨겨진 아이콘 `^` 안일 수 있어요)에 트레이 아이콘이 생겨요.
+
+Actions에 올라온 파일은 90일 뒤에 지워져요. 릴리스가 올라오면 위 버튼으로 바로 받을 수 있어요.
 
 ## 지금까지 된 것
 
@@ -148,4 +151,4 @@ skins/usagi/    Usagi (ちいかわ, 저작권은 권리자에게 있음)
 docs/PLAN.md    기획과 로드맵
 ```
 
-**릴리스**: `git tag v0.1.0 && git push origin v0.1.0` 을 하면 GitHub Actions가 설치 파일과 포터블 zip을 만들어 Release에 올려요.
+**릴리스**: `git tag v0.1.0 && git push origin v0.1.0` 을 하면 GitHub Actions가 설치 파일과 포터블 zip을 만들어 Release에 올려요. 태그를 올릴 수 없으면 Actions 탭에서 build 워크플로를 `Run workflow`로 실행하면서 `release_tag`에 `v0.1.0`을 적어도 돼요.
