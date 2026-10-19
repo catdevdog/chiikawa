@@ -1,0 +1,33 @@
+{
+  "name": "desktop-buddy",
+  "version": "0.1.0",
+  "description": "Windows desktop pet: wanders the screen, sticks to your mouse, and reacts to it.",
+  "private": true,
+  "type": "module",
+  "main": "dist/shell/main.cjs",
+  "author": "catdevdog",
+  "homepage": "https://github.com/catdevdog/chiikawa",
+  "repository": "github:catdevdog/chiikawa",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev:web": "vite",
+    "build:renderer": "vite build",
+    "build:shell": "node scripts/build-shell.mjs",
+    "build": "npm run build:renderer && npm run build:shell",
+    "start": "npm run build && electron .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "dist": "npm run build && electron-builder --win --publish never"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "electron": "^44.9.0",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.5"
+  }
+}

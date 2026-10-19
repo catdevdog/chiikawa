@@ -1,0 +1,22 @@
+import type { Mode, Roam } from '../engine/types';
+import { isSkinId } from './ids';
+import { DEFAULT_SETTINGS, type Settings } from './types';
+
+const MODES: Mode[] = ['auto', 'follow', 'attach', 'wander'];
+const ROAMS: Roam[] = ['free', 'floor'];
+
+/** Anything missing or invalid falls back to the default, so a hand-edited file cannot break startup. */
+export function sanitizeSettings(raw: unknown): Settings {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const d = DEFAULT_SETTINGS;
+  const scale =
+    typeof r.scale === 'number' && Number.isFinite(r.scale) ? Math.min(4, Math.max(0.25, r.scale)) : d.scale;
+  return {
+    mode: MODES.includes(r.mode as Mode) ? (r.mode as Mode) : d.mode,
+    scale,
+    roam: ROAMS.includes(r.roam as Roam) ? (r.roam as Roam) : d.roam,
+    skin: isSkinId(r.skin) ? r.skin : d.skin,
+    clickThrough: r.clickThrough === true,
+    autoStart: r.autoStart === true,
+  };
+}

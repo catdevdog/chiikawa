@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ws:"
+    />
+    <link rel="icon" href="data:," />
+    <title>Desktop Buddy</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: transparent;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      canvas {
+        position: fixed;
+        inset: 0;
+        display: block;
+      }
+      /* browser test page only */
+      body.harness {
+        background: #e4eaf2 repeating-conic-gradient(#d6dde8 0% 25%, transparent 0% 50%) 0 0 / 32px 32px;
+        font: 13px system-ui, sans-serif;
+      }
+      #harness {
+        position: fixed;
+        top: 8px;
+        left: 8px;
+        z-index: 2;
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        flex-wrap: wrap;
+        padding: 6px 8px;
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid #b9c4d4;
+        border-radius: 8px;
+      }
+      #harness button.on {
+        background: #3a6df0;
+        color: #fff;
+      }
+      #status {
+        min-width: 120px;
+        color: #445;
+        font-family: ui-monospace, monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="stage"></canvas>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

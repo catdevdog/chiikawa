@@ -147,3 +147,12 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+# --- Desktop Buddy ---
+release/
+
+# Skin packs: only the bundled default is tracked. Put your own packs in ./skins/<name>
+# for local runs, or in %APPDATA%/desktop-buddy/skins/<name> for an installed app.
+# Remove these two lines if you decide to commit a pack.
+/skins/*
+!/skins/default/

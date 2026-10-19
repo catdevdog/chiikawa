@@ -1,0 +1,33 @@
+appId: io.github.catdevdog.desktop-buddy
+productName: Desktop Buddy
+copyright: Desktop Buddy contributors
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**/*
+  - assets/**/*
+  - package.json
+  - "!**/*.map"
+extraResources:
+  - from: skins/default
+    to: skins/default
+asar: true
+# releases are published by the workflow with gh; the app has no auto-updater yet
+publish: null
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: zip
+      arch: [x64]
+  icon: build/icon.png
+  # Fixed file names (no version) so README links can use releases/latest/download/<name>.
+  artifactName: DesktopBuddy-Portable.${ext}
+nsis:
+  oneClick: true
+  perMachine: false
+  runAfterFinish: true
+  deleteAppDataOnUninstall: false
+  shortcutName: Desktop Buddy
+  artifactName: DesktopBuddy-Setup.${ext}
