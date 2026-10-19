@@ -58,6 +58,11 @@ jobs:
           $window = Start-Process powershell -PassThru -ArgumentList '-NoProfile', '-File', 'scripts/win32-smoke-window.ps1'
           Start-Sleep -Seconds 6
           try { node scripts/win32-smoke.mjs buddy-smoke-window } finally { Stop-Process -Id $window.Id -Force -ErrorAction SilentlyContinue }
+          # and the same library has to load from inside the installed app (its asar, with the native part unpacked)
+          $app = Get-ChildItem release/win-unpacked -Filter '*.exe' | Where-Object { $_.Name -notmatch 'elevate|uninstall' } | Select-Object -First 1
+          $env:ELECTRON_RUN_AS_NODE = '1'
+          & $app.FullName scripts/win32-packaged-smoke.cjs (Join-Path $app.DirectoryName 'resources')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       # latest.yml (version, file name and checksum of the installer) and the .blockmap are what an installed app reads
       # to update itself, so a build without them is a broken release
       - name: Check the update files
