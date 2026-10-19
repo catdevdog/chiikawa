@@ -19,6 +19,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     skin: isSkinId(r.skin) ? r.skin : d.skin,
     clickThrough: r.clickThrough === true,
     autoStart: r.autoStart === true,
+    autoUpdate: typeof r.autoUpdate === 'boolean' ? r.autoUpdate : d.autoUpdate,
     monitor: isMonitorChoice(r.monitor) ? r.monitor : d.monitor,
     speech: SPEECH_LEVELS.includes(r.speech as SpeechLevel) ? (r.speech as SpeechLevel) : d.speech,
   };

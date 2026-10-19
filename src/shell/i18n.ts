@@ -27,6 +27,16 @@ const ko = {
   makeSkin: '스킨 만들기…',
   clickThrough: '방해하지 않기 (클릭 통과)',
   autoStart: 'Windows 시작 시 실행',
+  updateAuto: '업데이트 자동 확인',
+  updateCheck: '업데이트 확인',
+  updateChecking: '업데이트 확인 중…',
+  updateUpToDate: (version: string): string => `최신 버전이에요 (v${version})`,
+  updateDownloading: (version: string, percent: number): string => `새 버전 v${version} 받는 중… ${percent}%`,
+  updateReady: (version: string): string => `v${version} 설치하고 다시 시작`,
+  updateFailed: '업데이트 확인에 실패했어요 — 다시 시도',
+  updateOpenPage: '새 버전 확인 (GitHub 열기)',
+  updateReadyBody: (version: string): string =>
+    `새 버전 v${version}이 준비됐어요. 트레이 메뉴의 '설치하고 다시 시작'을 누르거나, 종료할 때 자동으로 설치돼요.`,
   quit: '종료',
 };
 
@@ -57,6 +67,16 @@ const en: typeof ko = {
   makeSkin: 'Make a skin…',
   clickThrough: "Don't get in the way (click-through)",
   autoStart: 'Start with Windows',
+  updateAuto: 'Check for updates automatically',
+  updateCheck: 'Check for updates',
+  updateChecking: 'Checking for updates…',
+  updateUpToDate: (version: string): string => `Up to date (v${version})`,
+  updateDownloading: (version: string, percent: number): string => `Downloading v${version}… ${percent}%`,
+  updateReady: (version: string): string => `Install v${version} and restart`,
+  updateFailed: 'Update check failed - try again',
+  updateOpenPage: 'Check for a new version (opens GitHub)',
+  updateReadyBody: (version: string): string =>
+    `Version ${version} is ready. Choose "Install and restart" in the tray menu, or it installs when you quit.`,
   quit: 'Quit',
 };
 

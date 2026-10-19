@@ -8,6 +8,8 @@ export interface Settings {
   /** keep the pet click-through at all times */
   clickThrough: boolean;
   autoStart: boolean;
+  /** look for newer versions in the background and download them (an installed Windows build only) */
+  autoUpdate: boolean;
   /** where the pet lives: "all" monitors, the "primary" one, or the id of one monitor */
   monitor: string;
   /** what the pet says: "all" (answers and murmurs), "reactions" (only answers), "off" */
@@ -21,6 +23,7 @@ export const DEFAULT_SETTINGS: Settings = {
   skin: 'usagi',
   clickThrough: false,
   autoStart: false,
+  autoUpdate: true,
   monitor: 'all',
   speech: 'all',
 };

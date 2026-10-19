@@ -21,8 +21,13 @@ extraResources:
   - from: skins/rakko
     to: skins/rakko
 asar: true
-# releases are published by the workflow with gh; the app has no auto-updater yet
-publish: null
+# The workflow publishes the release itself with gh (npm run dist never uploads). This only tells the build where an
+# installed app looks for newer versions: it writes resources/app-update.yml into the app and latest.yml next to the
+# installer.
+publish:
+  provider: github
+  owner: catdevdog
+  repo: chiikawa
 win:
   target:
     - target: nsis

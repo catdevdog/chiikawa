@@ -49,22 +49,41 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run dist
+      # latest.yml (version, file name and checksum of the installer) and the .blockmap are what an installed app reads
+      # to update itself, so a build without them is a broken release
+      - name: Check the update files
+        shell: bash
+        run: |
+          ls -la release
+          cat release/latest.yml
+          test -f release/latest.yml
+          test -f release/DesktopBuddy-Setup.exe.blockmap
       - uses: actions/upload-artifact@v4
         with:
           name: windows
           path: |
             release/DesktopBuddy-Setup.exe
+            release/DesktopBuddy-Setup.exe.blockmap
             release/DesktopBuddy-Portable.zip
+            release/latest.yml
           if-no-files-found: error
-      # pushing a tag like v0.1.0, or running this workflow by hand with release_tag set, publishes the
-      # installer and the portable zip as a GitHub release (a manual run creates the tag on this commit)
+      # pushing a tag like v0.1.0, or running this workflow by hand with release_tag set, publishes the installer,
+      # the portable zip and the update files as a GitHub release (a manual run creates the tag on this commit)
       - name: Publish release
         if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && startsWith(inputs.release_tag, 'v'))
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.release_tag || github.ref_name }}
-        run: >
-          gh release create "$TAG"
-          release/DesktopBuddy-Setup.exe release/DesktopBuddy-Portable.zip
-          --title "$TAG" --generate-notes --target "$GITHUB_SHA"
+        run: |
+          # an installed app compares the version in latest.yml with its own: a tag that disagrees with package.json
+          # would offer nobody the update, or offer it forever
+          version=$(sed -n 's/^version: //p' release/latest.yml | tr -d "\r'\"")
+          if [ "v$version" != "$TAG" ]; then
+            echo "The tag $TAG does not match version $version in package.json; bump it first." >&2
+            exit 1
+          fi
+          gh release create "$TAG" \
+            release/DesktopBuddy-Setup.exe release/DesktopBuddy-Setup.exe.blockmap \
+            release/DesktopBuddy-Portable.zip release/latest.yml \
+            --title "$TAG" --generate-notes --target "$GITHUB_SHA"

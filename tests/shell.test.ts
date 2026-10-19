@@ -48,9 +48,17 @@ describe('sanitizeSettings', () => {
   });
 
   it('keeps valid values and clamps the scale', () => {
-    const s = sanitizeSettings({ mode: 'attach', roam: 'floor', skin: 'my-skin', scale: 99, clickThrough: true, autoStart: true, monitor: '2528732444', speech: 'reactions' });
-    expect(s).toEqual({ mode: 'attach', roam: 'floor', skin: 'my-skin', scale: 4, clickThrough: true, autoStart: true, monitor: '2528732444', speech: 'reactions' });
+    const s = sanitizeSettings({ mode: 'attach', roam: 'floor', skin: 'my-skin', scale: 99, clickThrough: true, autoStart: true, autoUpdate: false, monitor: '2528732444', speech: 'reactions' });
+    expect(s).toEqual({ mode: 'attach', roam: 'floor', skin: 'my-skin', scale: 4, clickThrough: true, autoStart: true, autoUpdate: false, monitor: '2528732444', speech: 'reactions' });
     expect(sanitizeSettings({ scale: 0.01 }).scale).toBe(0.25);
+  });
+
+  it('checks for updates unless that was switched off', () => {
+    expect(sanitizeSettings({}).autoUpdate).toBe(true);
+    expect(sanitizeSettings({ autoUpdate: false }).autoUpdate).toBe(false);
+    expect(sanitizeSettings({ autoUpdate: true }).autoUpdate).toBe(true);
+    // anything else is not a choice; the default (on) applies
+    for (const autoUpdate of ['no', 0, null, [], {}]) expect(sanitizeSettings({ autoUpdate }).autoUpdate).toBe(true);
   });
 
   it('accepts the three speech levels and nothing else', () => {

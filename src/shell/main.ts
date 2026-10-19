@@ -28,6 +28,7 @@ import { safeJoin } from './safe-path';
 import { loadSettings, saveSettings } from './settings';
 import { ensureUserSkinsDir, listSkins, MIME, resolveSkinFile, userSkinsDir } from './skins';
 import { Stage } from './stage';
+import { createUpdates, type Updates } from './updater';
 
 const APP_ID = 'io.github.catdevdog.desktop-buddy';
 const ORIGIN = 'buddy://app';
@@ -55,6 +56,10 @@ let settings: Settings = { ...DEFAULT_SETTINGS };
 const overlays = new Map<number, Overlay>();
 let stage: Stage;
 let lastSkin = '';
+/** keeps the installed app up to date; null until the app is ready */
+let updates: Updates | null = null;
+/** the tray menu as last built, for the end-to-end tests to read */
+let lastMenu: Menu | null = null;
 
 /** The overlay window an IPC message came from; anything else (the skin maker, a stray frame) is refused. */
 function overlayOf(e: IpcMainEvent | IpcMainInvokeEvent): Overlay | undefined {
@@ -191,6 +196,7 @@ function update(patch: Partial<Settings>): void {
   settings = { ...settings, ...patch };
   saveSettings(settings);
   if (patch.autoStart !== undefined) applyAutoStart();
+  if (patch.autoUpdate !== undefined) updates?.setBackground(settings.autoUpdate);
   stage.setSettings(settings);
   tellAll(IPC.settings, settings);
   if (patch.monitor !== undefined) syncDisplaysSoon(0);
@@ -241,66 +247,90 @@ async function rebuildMenu(): Promise<void> {
           },
         ]
       : [];
-  tray.setContextMenu(
-    Menu.buildFromTemplate([
-      {
-        label: s.mode,
-        submenu: [
-          radio<Mode>(s.modeAuto, 'auto', settings.mode, (mode) => update({ mode })),
-          radio<Mode>(s.modeFollow, 'follow', settings.mode, (mode) => update({ mode })),
-          radio<Mode>(s.modeAttach, 'attach', settings.mode, (mode) => update({ mode })),
-          radio<Mode>(s.modeWander, 'wander', settings.mode, (mode) => update({ mode })),
-        ],
-      },
-      {
-        label: s.size,
-        submenu: [
-          radio(s.small, 0.75, settings.scale, (scale) => update({ scale })),
-          radio(s.normal, 1, settings.scale, (scale) => update({ scale })),
-          radio(s.large, 1.5, settings.scale, (scale) => update({ scale })),
-          radio(s.huge, 2, settings.scale, (scale) => update({ scale })),
-        ],
-      },
-      {
-        label: s.roam,
-        submenu: [
-          radio<Roam>(s.roamFree, 'free', settings.roam, (roam) => update({ roam })),
-          radio<Roam>(s.roamFloor, 'floor', settings.roam, (roam) => update({ roam })),
-        ],
-      },
-      ...monitors,
-      {
-        label: s.speech,
-        submenu: [
-          radio<SpeechLevel>(s.speechAll, 'all', settings.speech, (speech) => update({ speech })),
-          radio<SpeechLevel>(s.speechReactions, 'reactions', settings.speech, (speech) => update({ speech })),
-          radio<SpeechLevel>(s.speechOff, 'off', settings.speech, (speech) => update({ speech })),
-        ],
-      },
-      {
-        label: s.skin,
-        submenu: [
-          ...skins.map((sk) => radio(sk.name, sk.id, settings.skin, (skin) => update({ skin }))),
-          { type: 'separator' },
-          { label: s.openSkins, click: () => void shell.openPath(userSkinsDir()) },
-        ],
-      },
-      { label: s.makeSkin, click: () => openMaker() },
-      { type: 'separator' },
-      { label: s.clickThrough, type: 'checkbox', checked: settings.clickThrough, click: (i) => update({ clickThrough: i.checked }) },
-      { label: s.autoStart, type: 'checkbox', checked: settings.autoStart, click: (i) => update({ autoStart: i.checked }) },
-      { type: 'separator' },
-      { label: `${s.quit} (${QUIT_LABEL})`, click: () => app.quit() },
-    ]),
-  );
+  const updateItem = updates?.menuItem() ?? null;
+  lastMenu = Menu.buildFromTemplate([
+    {
+      label: s.mode,
+      submenu: [
+        radio<Mode>(s.modeAuto, 'auto', settings.mode, (mode) => update({ mode })),
+        radio<Mode>(s.modeFollow, 'follow', settings.mode, (mode) => update({ mode })),
+        radio<Mode>(s.modeAttach, 'attach', settings.mode, (mode) => update({ mode })),
+        radio<Mode>(s.modeWander, 'wander', settings.mode, (mode) => update({ mode })),
+      ],
+    },
+    {
+      label: s.size,
+      submenu: [
+        radio(s.small, 0.75, settings.scale, (scale) => update({ scale })),
+        radio(s.normal, 1, settings.scale, (scale) => update({ scale })),
+        radio(s.large, 1.5, settings.scale, (scale) => update({ scale })),
+        radio(s.huge, 2, settings.scale, (scale) => update({ scale })),
+      ],
+    },
+    {
+      label: s.roam,
+      submenu: [
+        radio<Roam>(s.roamFree, 'free', settings.roam, (roam) => update({ roam })),
+        radio<Roam>(s.roamFloor, 'floor', settings.roam, (roam) => update({ roam })),
+      ],
+    },
+    ...monitors,
+    {
+      label: s.speech,
+      submenu: [
+        radio<SpeechLevel>(s.speechAll, 'all', settings.speech, (speech) => update({ speech })),
+        radio<SpeechLevel>(s.speechReactions, 'reactions', settings.speech, (speech) => update({ speech })),
+        radio<SpeechLevel>(s.speechOff, 'off', settings.speech, (speech) => update({ speech })),
+      ],
+    },
+    {
+      label: s.skin,
+      submenu: [
+        ...skins.map((sk) => radio(sk.name, sk.id, settings.skin, (skin) => update({ skin }))),
+        { type: 'separator' },
+        { label: s.openSkins, click: () => void shell.openPath(userSkinsDir()) },
+      ],
+    },
+    { label: s.makeSkin, click: () => openMaker() },
+    { type: 'separator' },
+    { label: s.clickThrough, type: 'checkbox', checked: settings.clickThrough, click: (i) => update({ clickThrough: i.checked }) },
+    { label: s.autoStart, type: 'checkbox', checked: settings.autoStart, click: (i) => update({ autoStart: i.checked }) },
+    // only a build that can update itself has something to switch off
+    ...(updates?.mode === 'auto'
+      ? [{ label: s.updateAuto, type: 'checkbox', checked: settings.autoUpdate, click: (i) => update({ autoUpdate: i.checked }) } as MenuItemConstructorOptions]
+      : []),
+    { type: 'separator' },
+    ...(updateItem ? [updateItem, { type: 'separator' } as MenuItemConstructorOptions] : []),
+    { label: `${s.quit} (${QUIT_LABEL})`, click: () => app.quit() },
+  ]);
+  tray.setContextMenu(lastMenu);
 }
 
 function createTray(): void {
   tray = new Tray(nativeImage.createFromPath(path.join(app.getAppPath(), 'assets', 'tray.png')));
-  tray.setToolTip('Desktop Buddy');
+  // the version in the tip tells at a glance whether an update has gone through
+  tray.setToolTip(`Desktop Buddy v${app.getVersion()}`);
   // Windows only opens the menu on right click by default
   tray.on('click', () => tray?.popUpContextMenu());
   void rebuildMenu();
+}
+
+interface MenuDescription {
+  label: string;
+  type: string;
+  checked: boolean;
+  enabled: boolean;
+  submenu?: MenuDescription[];
+}
+
+function describeMenu(menu: Menu | null): MenuDescription[] {
+  return (menu?.items ?? []).map((i) => ({
+    label: i.label,
+    type: i.type,
+    checked: i.checked,
+    enabled: i.enabled,
+    ...(i.submenu ? { submenu: describeMenu(i.submenu) } : {}),
+  }));
 }
 
 /** Handles for the end-to-end tests. Only an unpackaged run (never an installed app) gets them. */
@@ -315,6 +345,15 @@ function exposeTestHooks(): void {
     settings: () => settings,
     update: (patch: Partial<Settings>) => update(patch),
     say: (event: SayEvent) => stage.say(event),
+    /** the update machinery: state, mode, and a local feed to look at in place of GitHub */
+    updates: {
+      mode: () => updates?.mode ?? null,
+      state: () => updates?.state ?? null,
+      useFeed: (url: string) => updates?.useTestFeed(url),
+      checkNow: () => updates?.checkNow(),
+    },
+    /** the tray menu as it is now: label, type, checked, enabled, submenu */
+    menu: () => describeMenu(lastMenu),
     view: () => (stage.view ? { ...stage.view, particles: [...stage.view.particles] } : null),
     windows: () =>
       [...overlays.values()].map((o) => ({
@@ -353,6 +392,8 @@ async function boot(): Promise<void> {
     // the tray still works without a pet on screen, and the next change of monitors tries again
     log('error', `could not open the overlays: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
   }
+  updates = createUpdates(() => void rebuildMenu());
+  updates.setBackground(settings.autoUpdate);
   createTray();
   startLoop();
   screen.on('display-added', () => syncDisplaysSoon());
@@ -380,6 +421,9 @@ if (!app.requestSingleInstanceLock()) {
 
 // The pet lives in the tray: a moment without any overlay (the monitors are being swapped) must not end the app.
 app.on('window-all-closed', () => {});
-app.on('will-quit', () => globalShortcut.unregisterAll());
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
+  updates?.dispose();
+});
 process.on('uncaughtException', (err) => log('error', `uncaught: ${err.stack ?? err.message}`));
 process.on('unhandledRejection', (reason) => log('error', `unhandled rejection: ${String(reason)}`));
