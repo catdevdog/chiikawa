@@ -10,6 +10,7 @@ import {
   type Roam,
   type Vec2,
 } from './types';
+import { Region, type Reach } from './region';
 import { clamp, dist, inEllipse, mulberry32 } from './vec';
 
 const MAX_DT = 50;
@@ -32,8 +33,10 @@ const RUB_MIN_STEP = 4;
 const MAX_PARTICLES = 24;
 
 export interface PetOptions {
-  /** overlay size in px; the floor is its bottom edge */
+  /** one screen from the origin; its bottom edge is the floor */
   world: { width: number; height: number };
+  /** several screens (their work areas, in one coordinate space); the first is where the pet starts. Replaces `world`. */
+  region?: Rect[];
   config?: Partial<PetConfig>;
   mode?: Mode;
   rng?: () => number;
@@ -47,7 +50,7 @@ export class Pet {
   readonly view: PetView;
 
   private cfg: PetConfig;
-  private world: { width: number; height: number };
+  private region: Region;
   private rng: () => number;
 
   private time = 0;
@@ -98,10 +101,11 @@ export class Pet {
       sprite: { ...base.sprite, ...opts.config?.sprite },
       hitbox: { ...base.hitbox, ...opts.config?.hitbox },
     };
-    this.world = { ...opts.world };
+    this.region = new Region(opts.region ?? [{ x: 0, y: 0, w: opts.world.width, h: opts.world.height }]);
     this.mode = opts.mode ?? 'auto';
     this.rng = opts.rng ?? mulberry32(Date.now());
-    this.pos = { x: this.world.width / 2, y: this.world.height };
+    const home = this.region.rects[0]!;
+    this.pos = { x: home.x + home.w / 2, y: home.y + home.h };
     this.prevX = this.pos.x;
     this.view = {
       x: 0, y: 0, facing: 1, state: 'idle', t: 0, sx: 1, sy: 1, rot: 0, lift: 0, pivot: 'feet',
@@ -115,7 +119,12 @@ export class Pet {
   // --- configuration -------------------------------------------------------
 
   setWorld(width: number, height: number): void {
-    this.world = { width, height };
+    this.setRegion([{ x: 0, y: 0, w: width, h: height }]);
+  }
+
+  /** Replaces the screens the pet lives on (a monitor came or went, or the work area changed). */
+  setRegion(rects: Rect[]): void {
+    this.region = new Region(rects);
     this.pos = this.clampFeet(this.pos);
     if (this.target) this.target = this.clampFeet(this.target);
   }
@@ -164,6 +173,11 @@ export class Pet {
 
   isOver(p: Vec2): boolean {
     return inEllipse(p, this.hitbox());
+  }
+
+  /** A button went down on the pet and has not come up yet (it may or may not have become a drag). */
+  get pressed(): boolean {
+    return this.press !== null;
   }
 
   pointerMove(p: Vec2): void {
@@ -229,7 +243,7 @@ export class Pet {
         default:
           this.stepBehavior(dt);
       }
-      if (this.state !== 'fall') this.pos = this.clampFeet(this.pos);
+      if (this.state !== 'fall') this.pos = this.settleFeet(this.pos);
     }
     this.syncView();
   }
@@ -251,7 +265,7 @@ export class Pet {
   }
 
   private stepBehavior(dt: number): void {
-    if (this.cfg.roam === 'floor' && this.pos.y < this.bounds().maxY - 1) {
+    if (this.cfg.roam === 'floor' && this.pos.y < this.region.floor(this.pos, this.reach()) - 1) {
       this.startFall(0, 0);
       return;
     }
@@ -322,7 +336,7 @@ export class Pet {
       const uy = floor ? 0 : (center.y - c.y) / d;
       const goal = this.clampFeet({
         x: c.x + ux * stop,
-        y: floor ? this.bounds().maxY : c.y + uy * stop + (this.pos.y - center.y),
+        y: floor ? this.pos.y : c.y + uy * stop + (this.pos.y - center.y),
       });
       this.target = null;
       this.enter(d > start * 2.2 ? 'run' : 'walk');
@@ -368,24 +382,26 @@ export class Pet {
 
   private stepFall(dt: number): void {
     const s = dt / 1000;
-    const b = this.bounds();
+    const reach = this.reach();
     this.vel.y += this.k(this.cfg.gravity) * s;
     this.vel.x *= Math.max(0, 1 - 1.5 * s);
-    this.pos.x += this.vel.x * s;
-    this.pos.y += this.vel.y * s;
-    if (this.pos.x < b.minX) {
-      this.pos.x = b.minX;
-      this.vel.x = Math.abs(this.vel.x) * 0.4;
-    } else if (this.pos.x > b.maxX) {
-      this.pos.x = b.maxX;
-      this.vel.x = -Math.abs(this.vel.x) * 0.4;
+    // sideways: an edge of the screens with no other screen behind it is a wall
+    const nx = this.pos.x + this.vel.x * s;
+    const stop = this.region.reachX(this.pos, nx, reach);
+    if (stop !== nx) {
+      this.vel.x = (nx < stop ? 1 : -1) * Math.abs(this.vel.x) * 0.4;
     }
-    if (this.pos.y < b.minY) {
-      this.pos.y = b.minY;
+    this.pos.x = stop;
+    // up and down: the ceiling, and the floor of the screen(s) the body is over
+    const floorY = this.region.floor(this.pos, reach);
+    const ceilY = this.region.ceiling(this.pos, reach);
+    this.pos.y += this.vel.y * s;
+    if (this.pos.y < ceilY) {
+      this.pos.y = ceilY;
       this.vel.y = Math.abs(this.vel.y) * 0.3;
     }
-    if (this.pos.y >= b.maxY) {
-      this.pos.y = b.maxY;
+    if (this.pos.y >= floorY) {
+      this.pos.y = floorY;
       if (this.vel.y > this.k(700) && this.bounces < 1) {
         this.vel.y = -this.vel.y * 0.3;
         this.vel.x *= 0.7;
@@ -473,26 +489,24 @@ export class Pet {
   }
 
   private pickTarget(): Vec2 {
-    const b = this.bounds();
     const free = this.cfg.roam === 'free';
+    const reach = this.reach();
     let t: Vec2 = this.pos;
-    for (let i = 0; i < 4 && dist(t, this.pos) < this.k(80); i++) {
-      const x = b.minX + this.rng() * (b.maxX - b.minX);
-      const y = free && this.rng() < 0.6 ? b.maxY - this.rng() ** 1.5 * (b.maxY - b.minY) : b.maxY;
-      t = { x, y };
-    }
+    for (let i = 0; i < 4 && dist(t, this.pos) < this.k(80); i++) t = this.region.pick(this.rng, reach, free);
     return t;
   }
 
   private moveToward(t: Vec2, speed: number, dt: number): boolean {
+    // on the floor the pet only walks along it; where the floor steps up or down between screens, the screens decide
+    const floor = this.cfg.roam === 'floor';
     const dx = t.x - this.pos.x;
-    const dy = t.y - this.pos.y;
+    const dy = floor ? 0 : t.y - this.pos.y;
     const d = Math.hypot(dx, dy);
     const step = (speed * dt) / 1000;
     if (Math.abs(dx) > 1.5) this.facing = dx > 0 ? 1 : -1;
     this.gait += ((this.state === 'run' ? 3.4 : 2.0) * dt) / 1000;
     if (d <= step) {
-      this.pos = { x: t.x, y: t.y };
+      this.pos = { x: t.x, y: floor ? this.pos.y : t.y };
       this.vel = { x: 0, y: 0 };
       return true;
     }
@@ -546,7 +560,8 @@ export class Pet {
     return this.interactive && this.mode !== 'attach';
   }
 
-  private cancelPointer(): void {
+  /** Forgets a press in progress; a pet being dragged is let go. */
+  cancelPointer(): void {
     if (this.dragging) {
       this.dragging = false;
       this.startFall(0, 0);
@@ -712,22 +727,30 @@ export class Pet {
     return { x: this.pos.x, y: this.pos.y - this.size().h * 0.45 };
   }
 
-  /** Range the feet may occupy so that the body (hitbox) stays fully on screen. */
-  private bounds(): { minX: number; maxX: number; minY: number; maxY: number } {
+  /** How far the body (hitbox) reaches from the feet: it has to stay on the screens. */
+  private reach(): Reach {
     const { sprite, hitbox } = this.cfg;
     const { w, h } = this.size();
-    let minX = (sprite.anchorX - hitbox.x) * w;
-    let maxX = this.world.width - (hitbox.x + hitbox.w - sprite.anchorX) * w;
-    let minY = (sprite.anchorY - hitbox.y) * h;
-    const maxY = this.world.height;
-    if (maxX < minX) minX = maxX = this.world.width / 2;
-    if (maxY < minY) minY = maxY;
-    return { minX, maxX, minY, maxY };
+    return {
+      left: (sprite.anchorX - hitbox.x) * w,
+      right: (hitbox.x + hitbox.w - sprite.anchorX) * w,
+      top: (sprite.anchorY - hitbox.y) * h,
+    };
   }
 
   private clampFeet(p: Vec2): Vec2 {
-    const b = this.bounds();
-    return { x: clamp(p.x, b.minX, b.maxX), y: clamp(p.y, b.minY, b.maxY) };
+    return this.region.clamp(p, this.reach());
+  }
+
+  /**
+   * Keeps the feet on the screens after a move. A pet walking along a floor that meets a step to another
+   * screen's floor goes up or down the step at the same x, instead of being held back at the edge.
+   */
+  private settleFeet(p: Vec2): Vec2 {
+    const reach = this.reach();
+    if (this.region.fits(p, reach)) return p;
+    const walking = this.cfg.roam === 'floor' && (this.state === 'walk' || this.state === 'run');
+    return (walking && this.region.nearestY(p, reach)) || this.region.clamp(p, reach);
   }
 
   // --- animation -----------------------------------------------------------

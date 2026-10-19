@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { inEllipse, mulberry32, Pet, type Mode, type PetOptions, type PetState, type Vec2 } from '../src/engine';
+import { inEllipse, mulberry32, Pet, type Mode, type PetOptions, type PetState, type Rect, type Vec2 } from '../src/engine';
 
 const W = 1280;
 const H = 720;
@@ -445,5 +445,151 @@ describe('robustness', () => {
         throw new Error(`left the world at step ${i}: ${v.x},${v.y} in ${ww}x${wh}`);
       }
     }
+  });
+});
+
+describe('several screens', () => {
+  const SIDE_BY_SIDE: Rect[] = [{ x: 0, y: 0, w: 1000, h: 600 }, { x: 1000, y: 0, w: 1000, h: 600 }];
+  const TALLER: Rect[] = [{ x: 0, y: 0, w: 1000, h: 600 }, { x: 1000, y: 0, w: 1000, h: 800 }];
+  const SHIFTED: Rect[] = [{ x: 0, y: 0, w: 1000, h: 800 }, { x: 1000, y: 100, w: 1000, h: 600 }];
+  const STACKED: Rect[] = [{ x: 0, y: 0, w: 1000, h: 600 }, { x: 0, y: 600, w: 1000, h: 500 }];
+  const multi = (region: Rect[], opts: Partial<PetOptions> = {}) =>
+    new Pet({ world: { width: 1, height: 1 }, region, rng: mulberry32(7), ...opts });
+
+  /** the body is on the screens: inside their union, whatever the layout */
+  const onScreens = (pet: Pet, rects: Rect[]): boolean => {
+    const hb = pet.view.hitbox;
+    const covered = (x: number, y: number) => rects.some((r) => x >= r.x - 1e-6 && x <= r.x + r.w + 1e-6 && y >= r.y - 1e-6 && y <= r.y + r.h + 1e-6);
+    return [0, 0.5, 1].every((fx) => [0, 0.5, 1].every((fy) => covered(hb.x + hb.w * fx, hb.y + hb.h * fy)));
+  };
+
+  function drag(pet: Pet, to: Vec2): void {
+    const from = bodyCenter(pet);
+    pet.pointerMove(from);
+    pet.pointerDown(from);
+    for (let i = 1; i <= 30; i++) {
+      pet.pointerMove({ x: from.x + ((to.x - from.x) * i) / 30, y: from.y + ((to.y - from.y) * i) / 30 });
+      pet.update(16);
+    }
+    // let it come to rest in the hand before letting go, so it is dropped rather than thrown
+    for (let i = 0; i < 20; i++) pet.update(16);
+    pet.pointerUp(to);
+  }
+
+  it('starts at the bottom centre of the first screen', () => {
+    const pet = multi(SHIFTED);
+    pet.update(16);
+    expect(pet.view.x).toBeCloseTo(500);
+    expect(pet.view.y).toBe(800);
+  });
+
+  it('follows a cursor onto the other screen, standing across the edge on the way', () => {
+    const pet = multi(SIDE_BY_SIDE, { mode: 'follow' });
+    const cursor = { x: 1700, y: 450 };
+    pet.setCursor(cursor);
+    let straddled = false;
+    run(pet, 30_000, (p) => {
+      const hb = p.view.hitbox;
+      if (hb.x < 1000 && hb.x + hb.w > 1000) straddled = true;
+      expect(onScreens(p, SIDE_BY_SIDE)).toBe(true);
+    });
+    expect(straddled).toBe(true);
+    expect(gap(followCenter(pet), cursor)).toBeLessThan(150);
+  });
+
+  it('is dropped onto the floor of the screen it was dragged to', () => {
+    const pet = multi(TALLER, { config: { roam: 'floor' } });
+    pet.update(16);
+    drag(pet, { x: 1500, y: 300 });
+    run(pet, 5000);
+    expect(pet.view.state).not.toBe('held');
+    expect(pet.view.x).toBeGreaterThan(1400);
+    expect(pet.view.x).toBeLessThan(1600);
+    expect(pet.view.y).toBe(800);
+    // dropped on the first screen it stays on that floor
+    drag(pet, { x: 400, y: 300 });
+    run(pet, 5000);
+    expect(pet.view.y).toBe(600);
+  });
+
+  it('walks off the edge onto a lower floor and falls', () => {
+    const pet = multi(TALLER, { mode: 'follow', config: { roam: 'floor' } });
+    pet.setCursor({ x: 1700, y: 790 });
+    const seen = new Set<PetState>();
+    run(pet, 30_000, (p) => {
+      seen.add(p.view.state);
+      expect(onScreens(p, TALLER)).toBe(true);
+    });
+    expect(seen.has('fall')).toBe(true);
+    expect(pet.view.y).toBe(800);
+    expect(gap(followCenter(pet), { x: 1700, y: 790 })).toBeLessThan(160);
+  });
+
+  it('gets up onto a higher floor and is not stuck at the step', () => {
+    const pet = multi(SHIFTED, { mode: 'follow', config: { roam: 'floor' } });
+    pet.setCursor({ x: 1700, y: 690 });
+    run(pet, 30_000, (p) => expect(onScreens(p, SHIFTED)).toBe(true));
+    expect(pet.view.y).toBe(700);
+    expect(gap(followCenter(pet), { x: 1700, y: 690 })).toBeLessThan(160);
+  });
+
+  it('wanders over every screen and never leaves them', () => {
+    for (const layout of [SIDE_BY_SIDE, TALLER, SHIFTED]) {
+      const pet = multi(layout, { mode: 'wander' });
+      let left = false;
+      let right = false;
+      let walking = 0;
+      let longestWalk = 0;
+      run(pet, 240_000, (p) => {
+        expect(onScreens(p, layout)).toBe(true);
+        if (p.view.x < 900) left = true;
+        if (p.view.x > 1100) right = true;
+        walking = p.view.state === 'walk' || p.view.state === 'run' ? walking + 16 : 0;
+        longestWalk = Math.max(longestWalk, walking);
+      });
+      expect(left && right).toBe(true);
+      // a walk always ends: nothing keeps it pushing against an edge of the layout
+      expect(longestWalk).toBeLessThan(40_000);
+    }
+  });
+
+  it('lands on the lowest floor when the screens are stacked', () => {
+    const pet = multi(STACKED, { config: { roam: 'floor' } });
+    pet.update(16);
+    drag(pet, { x: 500, y: 250 });
+    run(pet, 6000);
+    expect(pet.view.y).toBe(1100);
+  });
+
+  it('is moved onto the screens that are left when one is taken away', () => {
+    const pet = multi(SIDE_BY_SIDE);
+    pet.update(16);
+    drag(pet, { x: 1500, y: 300 });
+    run(pet, 4000);
+    expect(pet.view.x).toBeGreaterThan(1400);
+    pet.setRegion([SIDE_BY_SIDE[0]!]);
+    pet.update(16);
+    expect(onScreens(pet, [SIDE_BY_SIDE[0]!])).toBe(true);
+    expect(pet.view.x).toBeLessThan(1000);
+  });
+
+  it('can be thrown from one screen to the other and bounces off the outer edge', () => {
+    const pet = multi(SIDE_BY_SIDE);
+    pet.update(16);
+    const from = bodyCenter(pet);
+    pet.pointerMove(from);
+    pet.pointerDown(from);
+    // a fast flick to the right
+    for (let i = 1; i <= 12; i++) {
+      pet.pointerMove({ x: from.x + i * 40, y: from.y - i * 6 });
+      pet.update(16);
+    }
+    pet.pointerUp({ x: from.x + 12 * 40, y: from.y - 72 });
+    let crossed = false;
+    run(pet, 6000, (p) => {
+      expect(onScreens(p, SIDE_BY_SIDE)).toBe(true);
+      if (p.view.x > 1100) crossed = true;
+    });
+    expect(crossed).toBe(true);
   });
 });
