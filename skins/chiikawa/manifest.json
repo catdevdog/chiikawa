@@ -59,7 +59,16 @@
       "durations": 100
     },
     "land": "land.png",
-    "surprised": "surprised.png"
+    "surprised": "surprised.png",
+    "broom": "broom.png",
+    "pajamas": "pajamas.png",
+    "droop": {
+      "sheet": "droop.png",
+      "frameWidth": 320,
+      "frameHeight": 260,
+      "count": 18,
+      "durations": 100
+    }
   },
   "motion": {
     "fall": "off"
@@ -161,5 +170,40 @@
       "와아아…",
       "힘이 없어…"
     ]
+  },
+  "actions": {
+    "broom": {
+      "pose": "broom",
+      "ms": 3400,
+      "motion": "sway",
+      "say": [
+        "쓱쓱~",
+        "깨끗해져라~"
+      ]
+    },
+    "pajamas": {
+      "pose": "pajamas",
+      "ms": 3000,
+      "motion": "still",
+      "on": [
+        "lowBattery"
+      ],
+      "say": [
+        "하암…",
+        "졸려…"
+      ]
+    },
+    "droop": {
+      "pose": "droop",
+      "ms": 3600,
+      "motion": "off",
+      "on": [
+        "unplug"
+      ],
+      "say": [
+        "우우…",
+        "쓸쓸해…"
+      ]
+    }
   }
 }

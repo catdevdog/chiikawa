@@ -22,7 +22,9 @@
     "happy": "happy.svg",
     "surprised": "surprised.svg",
     "sleep": "sleep.svg",
-    "held": "held.svg"
+    "held": "held.svg",
+    "wave": "wave.svg",
+    "snack": "snack.svg"
   },
   "textColor": "#3f8f4a",
   "lines": {
@@ -104,5 +106,31 @@
       "배고파… 충전해 줘~",
       "기운이 없어…"
     ]
+  },
+  "actions": {
+    "wave": {
+      "pose": "wave",
+      "ms": 2800,
+      "motion": "sway",
+      "on": [
+        "welcome"
+      ],
+      "say": [
+        "안녕~!",
+        "여기야 여기~!"
+      ]
+    },
+    "snack": {
+      "pose": "snack",
+      "ms": 3000,
+      "motion": "bounce",
+      "on": [
+        "plug"
+      ],
+      "say": [
+        "냠냠~",
+        "맛있다~"
+      ]
+    }
   }
 }

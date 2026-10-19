@@ -73,6 +73,16 @@
       "frameHeight": 323,
       "count": 12,
       "durations": 80
+    },
+    "camera": "camera.png",
+    "grin": "grin.png",
+    "cheer": "cheer.png",
+    "please": {
+      "sheet": "please.png",
+      "frameWidth": 305,
+      "frameHeight": 323,
+      "count": 8,
+      "durations": 50
     }
   },
   "motion": {
@@ -162,5 +172,53 @@
       "배터리가 거의 없어!?",
       "충전해 줘~ 어떻게든 안 될 것 같아!"
     ]
+  },
+  "actions": {
+    "camera": {
+      "pose": "camera",
+      "ms": 3600,
+      "motion": "still",
+      "say": [
+        "찰칵!",
+        "자, 치즈~!",
+        "추억 남기자~!"
+      ]
+    },
+    "grin": {
+      "pose": "grin",
+      "ms": 2400,
+      "motion": "bounce",
+      "on": [
+        "plug"
+      ],
+      "say": [
+        "에헤헤~",
+        "헤헤, 좋다~"
+      ]
+    },
+    "cheer": {
+      "pose": "cheer",
+      "ms": 2400,
+      "motion": "bounce",
+      "on": [
+        "welcome"
+      ],
+      "say": [
+        "신난다~!",
+        "야호~!"
+      ]
+    },
+    "please": {
+      "pose": "please",
+      "ms": 3200,
+      "motion": "off",
+      "on": [
+        "lowBattery"
+      ],
+      "say": [
+        "부탁이야~",
+        "있잖아~ 있잖아~"
+      ]
+    }
   }
 }

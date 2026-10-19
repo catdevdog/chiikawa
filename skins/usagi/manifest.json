@@ -79,7 +79,8 @@
       "frameHeight": 243,
       "count": 13,
       "durations": 100
-    }
+    },
+    "hula": "hula.png"
   },
   "motion": {
     "happy": "off"
@@ -169,5 +170,29 @@
       "후으으응…",
       "하아아아…"
     ]
+  },
+  "actions": {
+    "hula": {
+      "pose": "hula",
+      "ms": 3600,
+      "motion": "sway",
+      "say": [
+        "우라라라~",
+        "야하야하~!"
+      ]
+    },
+    "pompom": {
+      "pose": "land",
+      "ms": 2400,
+      "motion": "bounce",
+      "on": [
+        "welcome",
+        "plug"
+      ],
+      "say": [
+        "야하~!",
+        "우라라!"
+      ]
+    }
   }
 }
