@@ -1,0 +1,124 @@
+{
+  "name": "Rakko",
+  "size": {
+    "w": 127,
+    "h": 123
+  },
+  "anchor": {
+    "x": 0.5,
+    "y": 0.9903
+  },
+  "hitbox": {
+    "x": 0.025,
+    "y": 0.0419,
+    "w": 0.9469,
+    "h": 0.9484
+  },
+  "facing": "left",
+  "poses": {
+    "idle": {
+      "sheet": "idle.png",
+      "frameWidth": 320,
+      "frameHeight": 310,
+      "count": 6,
+      "durations": [
+        1500,
+        70,
+        90,
+        70,
+        900,
+        1000
+      ]
+    },
+    "walk": "walk.png",
+    "sit": "sit.png",
+    "sleep": "sleep.png",
+    "held": "held.png",
+    "surprised": "surprised.png",
+    "happy": "happy.png"
+  },
+  "textColor": "#7a5230",
+  "lines": {
+    "start": [
+      "…출격이다.",
+      "…음. 시작하지."
+    ],
+    "hover": [
+      "…음?",
+      "…?"
+    ],
+    "click": [
+      "…음?",
+      "무슨 일이지.",
+      "…!"
+    ],
+    "rub": [
+      {
+        "text": "…나쁘지 않군.",
+        "style": "hold"
+      },
+      {
+        "text": "…달군.",
+        "style": "hold"
+      },
+      "…으음."
+    ],
+    "triple": [
+      "…장난이 지나치군.",
+      {
+        "text": "…세 번이라.",
+        "style": "hold"
+      }
+    ],
+    "pickup": [
+      {
+        "text": "…놓아라.",
+        "style": "hold"
+      },
+      "…흠."
+    ],
+    "throw": [
+      "큭…!",
+      "…각오는 했다."
+    ],
+    "land": [
+      {
+        "text": "…문제없다.",
+        "style": "hold"
+      },
+      "…이 정도쯤이야."
+    ],
+    "flee": [
+      "…물러서라!",
+      "…!"
+    ],
+    "follow": [
+      "차에 타!",
+      "…따라와라."
+    ],
+    "attach": [
+      "…함께 가지."
+    ],
+    "idle": [
+      "강해지겠다고 맹세했다.",
+      "토벌, 수고했어.",
+      "…단 게 먹고 싶군.",
+      "…평화롭군."
+    ],
+    "sit": [
+      "…잠시 쉬지."
+    ],
+    "sleep": [
+      {
+        "text": "…쿨.",
+        "style": "float"
+      }
+    ],
+    "wake": [
+      "…음."
+    ],
+    "cross": [
+      "…다른 구역인가."
+    ]
+  }
+}

@@ -151,9 +151,12 @@ vite.config.ts.timestamp-*
 # --- Desktop Buddy ---
 release/
 
-# Skin packs: only the bundled ones are tracked (default = the original mascot, usagi = artwork supplied by
-# the repository owner, see skins/usagi/NOTICE.txt). Put your own packs in ./skins/<name> for local runs,
-# or in %APPDATA%/desktop-buddy/skins/<name> for an installed app.
+# Skin packs: only the bundled ones are tracked (default = the original mascot; usagi, hachiware, chiikawa and
+# rakko = artwork supplied by the repository owner, see the NOTICE.txt in each folder). Put your own packs in
+# ./skins/<name> for local runs, or in %APPDATA%/desktop-buddy/skins/<name> for an installed app.
 /skins/*
 !/skins/default/
 !/skins/usagi/
+!/skins/hachiware/
+!/skins/chiikawa/
+!/skins/rakko/

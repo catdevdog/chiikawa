@@ -1,0 +1,141 @@
+{
+  "name": "Hachiware",
+  "size": {
+    "w": 139,
+    "h": 147
+  },
+  "anchor": {
+    "x": 0.5,
+    "y": 0.9907
+  },
+  "hitbox": {
+    "x": 0.0984,
+    "y": 0.1393,
+    "w": 0.8,
+    "h": 0.8514
+  },
+  "facing": "left",
+  "poses": {
+    "idle": {
+      "sheet": "idle.png",
+      "frameWidth": 305,
+      "frameHeight": 323,
+      "count": 10,
+      "durations": [
+        1500,
+        70,
+        90,
+        70,
+        900,
+        60,
+        60,
+        60,
+        60,
+        1000
+      ]
+    },
+    "walk": {
+      "sheet": "walk.png",
+      "frameWidth": 305,
+      "frameHeight": 323,
+      "count": 8,
+      "durations": 62.5
+    },
+    "run": {
+      "sheet": "run.png",
+      "frameWidth": 305,
+      "frameHeight": 323,
+      "count": 6,
+      "durations": 49
+    },
+    "sit": "sit.png",
+    "sleep": {
+      "sheet": "sleep.png",
+      "frameWidth": 305,
+      "frameHeight": 323,
+      "count": 4,
+      "durations": [
+        3200,
+        80,
+        80,
+        4300
+      ]
+    },
+    "held": "held.png",
+    "land": "land.png",
+    "surprised": "surprised.png",
+    "happy": {
+      "sheet": "happy.png",
+      "frameWidth": 305,
+      "frameHeight": 323,
+      "count": 12,
+      "durations": 80
+    }
+  },
+  "motion": {
+    "happy": "off"
+  },
+  "textColor": "#3a78a6",
+  "lines": {
+    "start": [
+      "오늘도 어떻게든 돼!",
+      "있잖아~!"
+    ],
+    "hover": [
+      "어, 뭐야 뭐야?"
+    ],
+    "click": [
+      "깜짝이야!?",
+      "엣, 불렀어!?"
+    ],
+    "rub": [
+      "에헤헤~",
+      "기분 좋다~",
+      "좋은 날이다~"
+    ],
+    "triple": [
+      "세 번이나… 놀자는 거야!?",
+      "친구라는 거야!?"
+    ],
+    "pickup": [
+      "발이 안 닿는다~",
+      "들렸다…",
+      "세상이 붕 떴다~"
+    ],
+    "throw": [
+      "어떻게든 돼라~앗!"
+    ],
+    "land": [
+      "어떻게든 됐다!",
+      "어떻게든 안 됐다…"
+    ],
+    "flee": [
+      "빠르다!? 도망치라는 거야!?"
+    ],
+    "follow": [
+      "기다려~!",
+      "같이 가자!"
+    ],
+    "attach": [
+      "같이 가는 거야!?"
+    ],
+    "idle": [
+      "빨래가 덜 말랐다~",
+      "오늘 뭐 먹지?",
+      "챠리메라… 아니, 챠루메라!",
+      "이런 건 말이야, 분명 고거잖아!"
+    ],
+    "sit": [
+      "잠깐 쉬자~"
+    ],
+    "sleep": [
+      "쿨… 챠리메라…"
+    ],
+    "wake": [
+      "으응… 벌써 아침이라는 거야!?"
+    ],
+    "cross": [
+      "여긴… 다른 화면이라는 거야!?"
+    ]
+  }
+}

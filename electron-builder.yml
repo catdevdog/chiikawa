@@ -14,6 +14,12 @@ extraResources:
     to: skins/default
   - from: skins/usagi
     to: skins/usagi
+  - from: skins/hachiware
+    to: skins/hachiware
+  - from: skins/chiikawa
+    to: skins/chiikawa
+  - from: skins/rakko
+    to: skins/rakko
 asar: true
 # releases are published by the workflow with gh; the app has no auto-updater yet
 publish: null

@@ -1,0 +1,139 @@
+{
+  "name": "Chiikawa",
+  "size": {
+    "w": 199,
+    "h": 162
+  },
+  "anchor": {
+    "x": 0.5,
+    "y": 0.9885
+  },
+  "hitbox": {
+    "x": 0.2125,
+    "y": 0.2346,
+    "w": 0.5719,
+    "h": 0.7538
+  },
+  "facing": "left",
+  "poses": {
+    "idle": {
+      "sheet": "idle.png",
+      "frameWidth": 320,
+      "frameHeight": 260,
+      "count": 6,
+      "durations": [
+        1500,
+        70,
+        90,
+        70,
+        900,
+        1000
+      ]
+    },
+    "walk": "walk.png",
+    "sleep": {
+      "sheet": "sleep.png",
+      "frameWidth": 320,
+      "frameHeight": 260,
+      "count": 2,
+      "durations": [
+        3200,
+        4300
+      ]
+    },
+    "held": {
+      "sheet": "held.png",
+      "frameWidth": 320,
+      "frameHeight": 260,
+      "count": 4,
+      "durations": 50
+    },
+    "fall": {
+      "sheet": "fall.png",
+      "frameWidth": 320,
+      "frameHeight": 260,
+      "count": 18,
+      "durations": 100
+    },
+    "land": "land.png",
+    "surprised": "surprised.png"
+  },
+  "motion": {
+    "fall": "off"
+  },
+  "textColor": "#d9607f",
+  "lines": {
+    "start": [
+      "와!",
+      "후!",
+      "야~"
+    ],
+    "hover": [
+      "와…?",
+      "…!"
+    ],
+    "click": [
+      "와앗!",
+      "와, 와…!",
+      "야~!"
+    ],
+    "rub": [
+      "후후~",
+      "훙~!",
+      "하아~"
+    ],
+    "triple": [
+      {
+        "text": "와아~! 와아~!",
+        "style": "float"
+      },
+      "히히!"
+    ],
+    "pickup": [
+      "와, 와아…",
+      "우우…"
+    ],
+    "throw": [
+      "와아아앗!",
+      "싫어! 싫어!"
+    ],
+    "land": [
+      "…와.",
+      "우우…",
+      "후…"
+    ],
+    "flee": [
+      "싫어! 싫어!",
+      "와앗!!"
+    ],
+    "follow": [
+      "와~!",
+      "야~"
+    ],
+    "attach": [
+      "후후…",
+      "와~"
+    ],
+    "idle": [
+      "후.",
+      "챠루…",
+      "쓰다…",
+      "한입만~",
+      "나도…"
+    ],
+    "sit": [
+      "후…"
+    ],
+    "sleep": [
+      "쿠울…",
+      "새근…"
+    ],
+    "wake": [
+      "와!?"
+    ],
+    "cross": [
+      "와아…",
+      "야~!"
+    ]
+  }
+}
