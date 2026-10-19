@@ -18,6 +18,8 @@ export interface Settings {
   tricks: boolean;
   /** characters that live here besides `skin`, by skin id: each is a pet of its own, and they greet each other */
   friends: string[];
+  /** the pets climb onto the windows of other programs and sit on their top edge (experimental, Windows only) */
+  perch: boolean;
 }
 
 /** How many friends a pet can have (so the screens hold at most one more than this). */
@@ -35,6 +37,7 @@ export const DEFAULT_SETTINGS: Settings = {
   speech: 'all',
   tricks: true,
   friends: [],
+  perch: false,
 };
 
 export interface SkinInfo {

@@ -25,6 +25,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     speech: SPEECH_LEVELS.includes(r.speech as SpeechLevel) ? (r.speech as SpeechLevel) : d.speech,
     tricks: typeof r.tricks === 'boolean' ? r.tricks : d.tricks,
     friends: sanitizeFriends(r.friends, skin),
+    perch: r.perch === true,
   };
 }
 

@@ -49,6 +49,15 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run dist
+      # the windows of other programs are read through koffi, which only runs on Windows: this declares the system's
+      # functions the way the app does and looks for a window that is opened here. It only tells; it never stops a release
+      - name: Check that the windows of other programs can be read
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $window = Start-Process powershell -PassThru -ArgumentList '-NoProfile', '-File', 'scripts/win32-smoke-window.ps1'
+          Start-Sleep -Seconds 6
+          try { node scripts/win32-smoke.mjs buddy-smoke-window } finally { Stop-Process -Id $window.Id -Force -ErrorAction SilentlyContinue }
       # latest.yml (version, file name and checksum of the installer) and the .blockmap are what an installed app reads
       # to update itself, so a build without them is a broken release
       - name: Check the update files

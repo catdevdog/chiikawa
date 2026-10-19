@@ -28,11 +28,13 @@ import { t } from './i18n';
 import { log } from './log';
 import { makerCovers, openMaker, registerMakerIpc } from './maker';
 import { Overlay } from './overlay';
+import { boxesFrom, platformsFrom, type RawWindow, type WindowSource } from './perch';
 import { safeJoin } from './safe-path';
 import { loadSettings, saveSettings } from './settings';
 import { ensureUserSkinsDir, listSkins, MIME, resolveSkinFile, userSkinsDir } from './skins';
 import { Stage } from './stage';
 import { createUpdates, type Updates } from './updater';
+import { openWin32Source } from './win32';
 import { announceChanges, releasePage, type Announced } from './whats-new';
 
 const APP_ID = 'io.github.catdevdog.desktop-buddy';
@@ -51,6 +53,8 @@ const MAKER_FLAG = '--maker';
 const TICK_MS = 16;
 /** Windows sends several display events for one change; act once they have settled */
 const DISPLAY_SETTLE_MS = 150;
+/** the windows of other programs are looked at this often (the pets that stand on one follow it smoothly in between) */
+const PERCH_POLL_MS = 200;
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -77,6 +81,10 @@ let screenLocked = false;
 let updates: Updates | null = null;
 /** the tray menu as last built, for the end-to-end tests to read */
 let lastMenu: Menu | null = null;
+/** where the windows of other programs come from (Windows only; null where the pets cannot sit on windows) */
+let perchSource: WindowSource | null = null;
+/** the system's own source, which the end-to-end tests put aside for a made-up one */
+let systemSource: WindowSource | null = null;
 
 /** The overlay window an IPC message came from; anything else (the skin maker, a stray frame) is refused. */
 function overlayOf(e: IpcMainEvent | IpcMainInvokeEvent): Overlay | undefined {
@@ -172,6 +180,21 @@ function startLoop(): void {
       if (failures++ % 600 === 0) log('error', `tick failed: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
     }
   }, TICK_MS);
+  setInterval(pollPerch, PERCH_POLL_MS);
+}
+
+/** Looks at the windows of other programs and tells the pets where they can stand. Nothing happens while the setting is off. */
+function pollPerch(): void {
+  if (!settings.perch || stage.isHidden || !perchSource) return;
+  try {
+    stage.setPlatforms(platformsFrom(boxesFrom(perchSource)));
+  } catch (err) {
+    // give it up for this run rather than failing five times a second
+    log('error', `could not read the windows: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
+    perchSource = null;
+    stage.setPlatforms([]);
+    void rebuildMenu();
+  }
 }
 
 function registerIpc(): void {
@@ -216,6 +239,8 @@ function registerIpc(): void {
 
 function setHidden(hidden: boolean): void {
   stage.setHidden(hidden);
+  // the windows may have moved while the pets were away
+  if (!hidden) pollPerch();
   void rebuildMenu();
 }
 
@@ -267,6 +292,10 @@ function update(patch: Partial<Settings>): void {
   if (patch.autoStart !== undefined) applyAutoStart();
   if (patch.autoUpdate !== undefined) updates?.setBackground(settings.autoUpdate);
   stage.setSettings(settings);
+  if (patch.perch !== undefined) {
+    if (settings.perch) pollPerch();
+    else stage.setPlatforms([]);
+  }
   tellAll(IPC.settings, settings);
   if (patch.monitor !== undefined) syncDisplaysSoon(0);
   void rebuildMenu();
@@ -395,6 +424,10 @@ async function rebuildMenu(): Promise<void> {
     ...(stage.hasActions
       ? [{ label: s.tricksAuto, type: 'checkbox', checked: settings.tricks, click: (i) => update({ tricks: i.checked }) } as MenuItemConstructorOptions]
       : []),
+    // only where the windows of other programs can be read (Windows)
+    ...(perchSource
+      ? [{ label: s.perch, type: 'checkbox', checked: settings.perch, click: (i) => update({ perch: i.checked }) } as MenuItemConstructorOptions]
+      : []),
     { label: s.autoStart, type: 'checkbox', checked: settings.autoStart, click: (i) => update({ autoStart: i.checked }) },
     // only a build that can update itself has something to switch off
     ...(updates?.mode === 'auto'
@@ -483,6 +516,16 @@ function exposeTestHooks(): void {
       }
       return false;
     },
+    /** the windows of other programs: made-up ones in place of the system's (or the system's again with null), in the pets' own pixels */
+    perch: {
+      fake: (list: RawWindow[] | null) => {
+        perchSource = list === null ? systemSource : { list: () => list, toDip: (r) => r };
+        void rebuildMenu();
+        pollPerch();
+      },
+      platforms: () => stage.platformList,
+      perches: () => stage.perches,
+    },
     view: () => (stage.view ? { ...stage.view, particles: [...stage.view.particles] } : null),
     /** every pet that is on the screens: the main character first, then its friends */
     views: () => stage.views.map(({ id, view }) => ({ id, ...view, particles: [...view.particles] })),
@@ -528,6 +571,15 @@ async function boot(): Promise<void> {
     // the tray still works without a pet on screen, and the next change of monitors tries again
     log('error', `could not open the overlays: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
   }
+  systemSource = openWin32Source(
+    process.pid,
+    (r) => {
+      const d = screen.screenToDipRect(null, { x: r.x, y: r.y, width: r.w, height: r.h });
+      return { x: d.x, y: d.y, w: d.width, h: d.height };
+    },
+    (message) => log('warn', message),
+  );
+  perchSource = systemSource;
   updates = createUpdates(() => void rebuildMenu());
   updates.setBackground(settings.autoUpdate);
   createTray();

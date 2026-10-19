@@ -7,7 +7,8 @@ const common = {
   format: 'cjs',
   target: 'node22',
   sourcemap: true,
-  external: ['electron'],
+  // koffi is a native module: it is loaded from node_modules at run time, not bundled
+  external: ['electron', 'koffi'],
   logLevel: 'info',
 };
 

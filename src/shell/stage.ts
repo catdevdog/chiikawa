@@ -1,5 +1,5 @@
 import { Flock, Pet } from '../engine';
-import type { NoticeEvent, PetView, Rect, SayEvent, Vec2 } from '../engine/types';
+import type { NoticeEvent, PetView, Platform, Rect, SayEvent, Vec2 } from '../engine/types';
 import { clamp, inEllipse, mulberry32 } from '../engine/vec';
 import { MAX_FRIENDS, type Area, type PointerReport, type Settings, type SkinReport, type ViewFrame } from '../shared/types';
 
@@ -64,6 +64,8 @@ export class Stage {
   private settings: Settings;
   private windows = new Map<StageWindow, WindowState>();
   private pressed: { win: StageWindow; member: Member } | null = null;
+  /** the windows of other programs the pets may stand on (their uncovered top edges) */
+  private platforms: readonly Platform[] = [];
   /** put away for a while: nothing moves, nothing is drawn, the mouse goes through */
   private hidden = false;
   private last = Number.NaN;
@@ -138,6 +140,22 @@ export class Stage {
   notice(event: NoticeEvent): void {
     if (this.hidden) return;
     for (const m of this.members) m.pet.notice(event);
+  }
+
+  /** The windows of other programs the pets may stand on, as they are now (none: the pets stay on the floor, and any that stand on one fall). */
+  setPlatforms(list: readonly Platform[]): void {
+    this.platforms = list;
+    for (const m of this.members) m.pet.setPlatforms(list);
+  }
+
+  /** The places to stand that the pets were told about. For tests and diagnostics. */
+  get platformList(): readonly Platform[] {
+    return this.platforms;
+  }
+
+  /** The window each pet stands on right now (null: none), by skin id. For tests and diagnostics. */
+  get perches(): { id: string; on: string | null }[] {
+    return this.members.map((m) => ({ id: m.id, on: m.pet.perched }));
   }
 
   /** Which windows are up. Their areas are the screens the pets may be on; the first is where they start. */
@@ -317,6 +335,7 @@ export class Stage {
     pet.setLines(skin.lines);
     pet.setActions(skin.actions);
     pet.setInteractive(!s.clickThrough);
+    pet.setPlatforms(this.platforms);
     return m;
   }
 

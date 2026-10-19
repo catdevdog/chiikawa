@@ -49,8 +49,8 @@ describe('sanitizeSettings', () => {
   });
 
   it('keeps valid values and clamps the scale', () => {
-    const s = sanitizeSettings({ mode: 'attach', roam: 'floor', skin: 'my-skin', scale: 99, clickThrough: true, autoStart: true, autoUpdate: false, monitor: '2528732444', speech: 'reactions', tricks: false, friends: ['usagi', 'rakko'] });
-    expect(s).toEqual({ mode: 'attach', roam: 'floor', skin: 'my-skin', scale: 4, clickThrough: true, autoStart: true, autoUpdate: false, monitor: '2528732444', speech: 'reactions', tricks: false, friends: ['usagi', 'rakko'] });
+    const s = sanitizeSettings({ mode: 'attach', roam: 'floor', skin: 'my-skin', scale: 99, clickThrough: true, autoStart: true, autoUpdate: false, monitor: '2528732444', speech: 'reactions', tricks: false, friends: ['usagi', 'rakko'], perch: true });
+    expect(s).toEqual({ mode: 'attach', roam: 'floor', skin: 'my-skin', scale: 4, clickThrough: true, autoStart: true, autoUpdate: false, monitor: '2528732444', speech: 'reactions', tricks: false, friends: ['usagi', 'rakko'], perch: true });
     expect(sanitizeSettings({ scale: 0.01 }).scale).toBe(0.25);
   });
 
@@ -66,6 +66,13 @@ describe('sanitizeSettings', () => {
     expect(sanitizeSettings({}).tricks).toBe(true);
     expect(sanitizeSettings({ tricks: false }).tricks).toBe(false);
     for (const tricks of ['no', 0, null, [], {}]) expect(sanitizeSettings({ tricks }).tricks).toBe(true);
+  });
+
+  it('does not sit on windows unless that was switched on', () => {
+    expect(sanitizeSettings({}).perch).toBe(false);
+    expect(sanitizeSettings({ perch: true }).perch).toBe(true);
+    // anything but a plain yes is a no
+    for (const perch of [false, 'yes', 1, null, [], {}]) expect(sanitizeSettings({ perch }).perch).toBe(false);
   });
 
   it('keeps a list of friends that are skins, each once, without the main character, up to the limit', () => {

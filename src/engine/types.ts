@@ -157,6 +157,20 @@ export interface Line {
   with?: string[];
 }
 
+/**
+ * The top edge of a window (or a part of it that nothing covers): a place to stand, in the same coordinates as the
+ * screens. The pet's feet are at `y` and may be anywhere from `x0` to `x1`.
+ */
+export interface Platform {
+  /** names the place for as long as it exists, so that a pet can be carried along when its window moves */
+  id: string;
+  x0: number;
+  x1: number;
+  y: number;
+  /** where the window's own left edge is (the part that is not covered starts further right); a moved window carries the pet by this */
+  ax: number;
+}
+
 /** Another pet living on the same screens, as a pet sees it. */
 export interface Peer {
   id: string;

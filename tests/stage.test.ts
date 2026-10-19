@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mulberry32, type Vec2 } from '../src/engine';
+import { mulberry32, type Platform, type Vec2 } from '../src/engine';
 import { DEFAULT_SETTINGS, type Area, type Settings, type SkinReport, type ViewFrame } from '../src/shared/types';
 import { Stage, type StageWindow } from '../src/shell/stage';
 
@@ -842,5 +842,65 @@ describe('friends', () => {
     }
     expect([...said].some((w) => /says hi$/.test(w))).toBe(true);
     expect([...said].some((w) => /says hi back$/.test(w))).toBe(true);
+  });
+});
+
+describe('windows to sit on', () => {
+  const TOP: Platform = { id: 'w', x0: 300, x1: 900, y: 400, ax: 300 };
+
+  /** a stage whose main character is `main`, with the skins of `known` loaded */
+  function many(main: string, friends: string[], known: string[]) {
+    const settings: Settings = { ...SETTINGS, skin: main, friends };
+    const t = setup([LEFT], settings);
+    for (const id of [main, ...known]) t.stage.setSkin({ ...GEOMETRY, id });
+    return { ...t, settings };
+  }
+
+  /** Picks the pet at `index` up by its body and lets it go, standing still, with its feet at (x, y). */
+  function dropOnto(t: ReturnType<typeof setup>, index: number, x: number, y: number): void {
+    const v = t.stage.views[index]!.view;
+    const from = { x: v.hitbox.x + v.hitbox.w / 2, y: v.hitbox.y + v.hitbox.h / 2 };
+    const to = { x: from.x + (x - v.x), y: from.y + (y - v.y) };
+    t.press(t.wins[0]!, from);
+    t.drag(from, to);
+    t.run(300);
+    t.release(t.wins[0]!, to);
+  }
+
+  it('puts a pet that is let go above a window on it, and lets it fall again when the window goes away', () => {
+    const t = setup([LEFT]);
+    t.run(300);
+    t.stage.setPlatforms([TOP]);
+    expect(t.stage.platformList).toEqual([TOP]);
+    dropOnto(t, 0, 600, 250);
+    t.run(1500);
+    expect(t.stage.perches).toEqual([{ id: 'default', on: 'w' }]);
+    expect(t.stage.view!.y).toBe(400);
+    t.stage.setPlatforms([]);
+    t.run(1500);
+    expect(t.stage.perches).toEqual([{ id: 'default', on: null }]);
+    expect(t.stage.view!.y).toBe(LEFT.height);
+  });
+
+  it('tells every pet about the windows, also one that comes after', () => {
+    const t = many('chiikawa', [], ['chiikawa', 'hachiware']);
+    t.run(300);
+    t.stage.setPlatforms([TOP]);
+    t.stage.setSettings({ ...t.settings, friends: ['hachiware'] });
+    t.run(100);
+    expect(t.stage.views.map((v) => v.id)).toEqual(['chiikawa', 'hachiware']);
+    dropOnto(t, 1, 700, 250);
+    t.run(1500);
+    expect(t.stage.perches).toEqual([
+      { id: 'chiikawa', on: null },
+      { id: 'hachiware', on: 'w' },
+    ]);
+  });
+
+  it('keeps the pets on the floor when there are no windows', () => {
+    const t = setup([LEFT]);
+    t.run(20_000);
+    expect(t.stage.platformList).toEqual([]);
+    expect(t.stage.view!.y).toBe(LEFT.height);
   });
 });

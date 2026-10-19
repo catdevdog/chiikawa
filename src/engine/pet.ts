@@ -13,12 +13,14 @@ import {
   type PetConfig,
   type PetState,
   type PetView,
+  type Platform,
   type Rect,
   type Roam,
   type SayEvent,
   type SpeechLevel,
   type Vec2,
 } from './types';
+import { planHop } from './perch';
 import { Region, type Reach } from './region';
 import { Speaker, textWidth } from './speech';
 import { clamp, dist, inEllipse, mulberry32 } from './vec';
@@ -52,6 +54,22 @@ const ACTION_CHATTY_CHANCE = 0.5;
 /** with friends about: how often a new place to walk to is a friend, and how far from it the pet stops */
 const VISIT_CHANCE = 0.45;
 const VISIT_GAP = 100;
+/** a pet counts as standing on a window until its feet are this far past the end of it */
+const PERCH_SLACK = 6;
+/** a pet that lands, or walks about, on a window keeps this far from the ends of it */
+const PERCH_MARGIN = 14;
+/** hopping up onto a window: how far above the feet its top may be, how far to the side the nearest place on it may be, and how high above the top the feet rise */
+const HOP_RISE = 230;
+const HOP_REACH = 320;
+const HOP_CLEARANCE = 46;
+/** each time a pet on the floor (or on a window) decides what to do next: how likely it hops up onto a window in reach */
+const HOP_CHANCE = 0.3;
+/** a pet on a window: how likely its next walk stays on the window */
+const STAY_CHANCE = 0.8;
+/** a pet that may roam the whole screen: how likely a new place to go to is the top of a window (when there is one) */
+const WINDOW_VISIT_CHANCE = 0.35;
+/** how fast a pet follows the window it stands on when that moves (time constant, ms) */
+const CARRY_MS = 90;
 
 export interface PetOptions {
   /** one screen from the origin; its bottom edge is the floor */
@@ -112,6 +130,14 @@ export class Pet {
   private tricks = true;
   /** the other pets on the same screens */
   private peers: readonly Peer[] = [];
+  /** the tops of the windows that can be stood on */
+  private platforms: readonly Platform[] = [];
+  /** the window the feet are on (null: the floor of the screens, or the air) */
+  private perch: string | null = null;
+  /** how much of the last move of that window the pet has still to follow */
+  private carry: Vec2 = { x: 0, y: 0 };
+  /** the window a hop is aimed at, while the pet is in the air for it */
+  private hop: string | null = null;
 
   private cursor: Vec2 | null = null;
   private prevCursor: Vec2 | null = null;
@@ -182,6 +208,30 @@ export class Pet {
 
   setRoam(roam: Roam): void {
     this.cfg.roam = roam;
+  }
+
+  /**
+   * The windows the pet may stand on, as they are now (their uncovered top edges). A pet on one goes along when the
+   * window moves, and when the window goes away a pet that walks along a floor falls (one that roams the whole
+   * screen stays where it is, in the air, as it always may).
+   */
+  setPlatforms(list: readonly Platform[]): void {
+    const before = this.perch === null ? undefined : this.platforms.find((p) => p.id === this.perch);
+    this.platforms = list;
+    if (this.perch === null) return;
+    const now = list.find((p) => p.id === this.perch);
+    if (!before || !now) {
+      // the window is gone: the next step finds nothing under the feet
+      this.carry = { x: 0, y: 0 };
+      return;
+    }
+    this.carry.x += now.ax - before.ax;
+    this.carry.y += now.y - before.y;
+  }
+
+  /** Is the pet standing on a window? (For tests and diagnostics: the window's id.) */
+  get perched(): string | null {
+    return this.standingOn()?.id ?? null;
   }
 
   /** Called when a skin changes the sprite box. */
@@ -378,6 +428,7 @@ export class Pet {
       this.interactionIdleMs += dt;
       this.trackCursor(dt);
       this.stepParticles(dt);
+      this.followPerch(dt);
       switch (this.state) {
         case 'held':
           this.stepHeld(dt);
@@ -420,10 +471,16 @@ export class Pet {
   }
 
   private stepBehavior(dt: number): void {
-    if (this.cfg.roam === 'floor' && this.pos.y < this.region.floor(this.pos, this.reach()) - 1) {
-      this.startFall(0, 0);
+    const perched = this.perch !== null;
+    const on = this.standingOn();
+    if (this.cfg.roam === 'floor' && this.pos.y < this.region.floor(this.pos, this.reach()) - 1 && !on) {
+      // stepping off a window carries the walk on a little; anything else just drops
+      this.startFall(perched && (this.state === 'walk' || this.state === 'run') ? this.vel.x * 0.5 : 0, 0);
       return;
     }
+    // a window that was stood on is gone (or the pet has left it); a pet that roams the whole screen takes to a window it is at the top of
+    if (perched && !on) this.leavePerch();
+    else if (!perched && this.cfg.roam === 'free') this.adoptPerch();
     // an action that something else started (a situation, say) is finished before the pet goes on to the cursor
     if (this.summoned && this.state !== 'act') {
       this.stepSummon(dt);
@@ -565,6 +622,7 @@ export class Pet {
     this.decideIn -= dt;
     if (this.decideIn > 0) return;
     if (this.maybeAct()) return;
+    if (this.maybeHop()) return;
     const r = this.rng();
     if (r < 0.55) {
       this.target = this.pickTarget();
@@ -650,7 +708,8 @@ export class Pet {
     const s = dt / 1000;
     const reach = this.reach();
     this.vel.y += this.k(this.cfg.gravity) * s;
-    this.vel.x *= Math.max(0, 1 - 1.5 * s);
+    // a hop keeps its sideways speed all the way
+    if (this.hop === null) this.vel.x *= Math.max(0, 1 - 1.5 * s);
     // sideways: an edge of the screens with no other screen behind it is a wall
     const nx = this.pos.x + this.vel.x * s;
     const stop = this.region.reachX(this.pos, nx, reach);
@@ -661,24 +720,53 @@ export class Pet {
     // up and down: the ceiling, and the floor of the screen(s) the body is over
     const floorY = this.region.floor(this.pos, reach);
     const ceilY = this.region.ceiling(this.pos, reach);
+    const fromY = this.pos.y;
     this.pos.y += this.vel.y * s;
     if (this.pos.y < ceilY) {
       this.pos.y = ceilY;
       this.vel.y = Math.abs(this.vel.y) * 0.3;
     }
-    if (this.pos.y >= floorY) {
+    const on = this.landingOn(fromY, floorY);
+    if (on) {
+      this.pos.y = on.y;
+      this.perch = on.id;
+      this.carry = { x: 0, y: 0 };
+      this.touchDown();
+    } else if (this.pos.y >= floorY) {
       this.pos.y = floorY;
       if (this.vel.y > this.k(700) && this.bounces < 1) {
         this.vel.y = -this.vel.y * 0.3;
         this.vel.x *= 0.7;
         this.bounces++;
       } else {
-        const airtime = this.stateMs;
-        this.vel = { x: 0, y: 0 };
-        this.enter('land');
-        if (airtime > 450) this.say('land');
+        this.touchDown();
       }
     }
+  }
+
+  /** The feet are on something: the pet comes to rest (and says so if it came a long way, unless it jumped there on purpose). */
+  private touchDown(): void {
+    const airtime = this.stateMs;
+    const hopped = this.hop !== null;
+    this.hop = null;
+    this.vel = { x: 0, y: 0 };
+    this.enter('land');
+    if (airtime > 450 && !hopped) this.say('land');
+  }
+
+  /** The window the feet come down on in this step (they were at height `fromY` and are at `this.pos` now), if there is one. */
+  private landingOn(fromY: number, floorY: number): Platform | null {
+    const reach = this.reach();
+    let best: Platform | null = null;
+    for (const p of this.platforms) {
+      // above the floor, and the feet went from above its top edge to below it
+      if (p.y >= floorY - 1 || fromY > p.y + 0.5 || this.pos.y < p.y) continue;
+      if (this.pos.x < p.x0 + PERCH_MARGIN || this.pos.x > p.x1 - PERCH_MARGIN) continue;
+      if (best && p.y >= best.y) continue;
+      if (!this.region.fits({ x: this.pos.x, y: p.y }, reach)) continue;
+      best = p;
+    }
+    return best;
   }
 
   private stepSurprised(): void {
@@ -766,6 +854,23 @@ export class Pet {
   private pickTarget(): Vec2 {
     const free = this.cfg.roam === 'free';
     const reach = this.reach();
+    // on a window, mostly walk along it (the other walks go off its edge)
+    const on = this.standingOn();
+    if (on && this.rng() < STAY_CHANCE) {
+      const span = this.span(on);
+      if (span) return { x: span.lo + this.rng() * (span.hi - span.lo), y: this.pos.y };
+    }
+    // a pet that may go anywhere now and then goes and stands on the top of a window (no random numbers are used when there is none)
+    if (free && this.platforms.length > 0) {
+      const spans = this.platforms.filter((p) => p.id !== on?.id).flatMap((p) => {
+        const span = this.span(p);
+        return span ? [{ p, span }] : [];
+      });
+      if (spans.length > 0 && this.rng() < WINDOW_VISIT_CHANCE) {
+        const { p, span } = spans[Math.floor(this.rng() * spans.length) % spans.length]!;
+        return { x: span.lo + this.rng() * (span.hi - span.lo), y: p.y };
+      }
+    }
     // with friends about, often go and stand beside one (no random numbers are used when there is none)
     if (this.peers.length > 0 && this.rng() < VISIT_CHANCE) {
       const peer = this.peers[Math.floor(this.rng() * this.peers.length) % this.peers.length]!;
@@ -797,12 +902,94 @@ export class Pet {
     return false;
   }
 
-  private startFall(vx: number, vy: number): void {
+  private startFall(vx: number, vy: number, hop: string | null = null): void {
     this.vel = { x: vx, y: vy };
     this.bounces = 0;
     this.target = null;
     this.holder = null;
+    this.hop = hop;
+    this.perch = null;
+    this.carry = { x: 0, y: 0 };
     this.enter('fall', true);
+  }
+
+  // --- helpers: windows ----------------------------------------------------
+
+  private leavePerch(): void {
+    this.perch = null;
+    this.hop = null;
+    this.carry = { x: 0, y: 0 };
+  }
+
+  /** The window the feet are on right now; null on the floor, in the air, or when the window went away or moved off. */
+  private standingOn(): Platform | null {
+    if (this.perch === null) return null;
+    const p = this.platforms.find((q) => q.id === this.perch);
+    if (!p) return null;
+    // where the feet will be once the window has been followed all the way
+    const x = this.pos.x + this.carry.x;
+    const y = this.pos.y + this.carry.y;
+    if (Math.abs(y - p.y) > 2 || x < p.x0 - PERCH_SLACK || x > p.x1 + PERCH_SLACK) return null;
+    return p;
+  }
+
+  /** The stretch of a window where the body fits on the screens, a margin in from its ends; null when that is too short for the pet. */
+  private span(p: Platform): { lo: number; hi: number } | null {
+    const reach = this.reach();
+    const lo0 = p.x0 + PERCH_MARGIN;
+    const hi0 = p.x1 - PERCH_MARGIN;
+    if (hi0 - lo0 < this.k(24)) return null;
+    const mid = { x: (lo0 + hi0) / 2, y: p.y };
+    if (!this.region.fits(mid, reach)) return null;
+    const lo = this.region.reachX(mid, lo0, reach);
+    const hi = this.region.reachX(mid, hi0, reach);
+    return hi - lo >= this.k(24) ? { lo, hi } : null;
+  }
+
+  /** A pet that roams the whole screen and has come to the top of a window is standing on it from now on (it goes along when the window moves). */
+  private adoptPerch(): void {
+    for (const p of this.platforms) {
+      if (Math.abs(this.pos.y - p.y) <= 1.5 && this.pos.x >= p.x0 && this.pos.x <= p.x1) {
+        this.perch = p.id;
+        this.carry = { x: 0, y: 0 };
+        return;
+      }
+    }
+  }
+
+  /** Goes along with the window under the feet when that has moved (smoothly, since the list of windows comes in steps). */
+  private followPerch(dt: number): void {
+    const c = this.carry;
+    if (c.x === 0 && c.y === 0) return;
+    const f = 1 - Math.exp(-dt / CARRY_MS);
+    const dx = Math.abs(c.x) < 0.05 ? c.x : c.x * f;
+    const dy = Math.abs(c.y) < 0.05 ? c.y : c.y * f;
+    this.pos.x += dx;
+    this.pos.y += dy;
+    c.x -= dx;
+    c.y -= dy;
+  }
+
+  /** With a window a little above within reach, now and then jumps up onto it (no random numbers are used when there is none). */
+  private maybeHop(): boolean {
+    if (this.cfg.roam !== 'floor' || this.platforms.length === 0) return false;
+    const options: { p: Platform; x: number }[] = [];
+    for (const p of this.platforms) {
+      if (p.id === this.perch) continue;
+      const rise = this.pos.y - p.y;
+      if (rise < this.k(30) || rise > this.k(HOP_RISE)) continue;
+      const span = this.span(p);
+      if (!span) continue;
+      const x = clamp(this.pos.x, span.lo, span.hi);
+      if (Math.abs(x - this.pos.x) > this.k(HOP_REACH)) continue;
+      options.push({ p, x });
+    }
+    if (options.length === 0 || this.rng() >= HOP_CHANCE) return false;
+    const { p, x } = options[Math.floor(this.rng() * options.length) % options.length]!;
+    const plan = planHop(this.pos, { x, y: p.y }, this.k(this.cfg.gravity), this.k(HOP_CLEARANCE));
+    if (Math.abs(x - this.pos.x) > 2) this.facing = x > this.pos.x ? 1 : -1;
+    this.startFall(plan.vx, plan.vy, p.id);
+    return true;
   }
 
   private startHold(): void {
@@ -832,6 +1019,7 @@ export class Pet {
       const before = this.state;
       this.state = s;
       this.stateMs = 0;
+      if (s === 'held') this.leavePerch();
       if (before !== s && (s === 'sit' || s === 'sleep')) this.say(s);
       // every walk or run starts at the beginning of its step, so a skin's own walk cycle (which also starts
       // at the beginning of the state) stays in step with the hop
