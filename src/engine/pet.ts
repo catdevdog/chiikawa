@@ -201,8 +201,13 @@ export class Pet {
     this.screen = -2;
   }
 
-  setScale(scale: number): void {
+  /**
+   * `scale` is how big the pet is drawn. The words above it use `textScale` (default: the same), so that friends drawn at
+   * different scales to look equally big still speak in letters of the same size.
+   */
+  setScale(scale: number, textScale: number = scale): void {
     this.cfg.scale = scale;
+    this.cfg.textScale = textScale;
     this.pos = this.clampFeet(this.pos);
   }
 
@@ -1246,7 +1251,7 @@ export class Pet {
 
   /** Words above the head. Sounds drift up and fade like the z's; sentences stay a while, following the pet. */
   private spawnText(line: Line): void {
-    const s = this.cfg.scale;
+    const s = this.cfg.textScale ?? this.cfg.scale;
     const held = line.style === 'hold';
     const size = (held ? 15 : 17) * s;
     const w = textWidth(line.text, size);
@@ -1274,7 +1279,7 @@ export class Pet {
   }
 
   private stepText(p: Particle, dt: number): void {
-    const s = this.cfg.scale;
+    const s = this.cfg.textScale ?? this.cfg.scale;
     if (p.style === 'hold') {
       // eases to the spot above the head, drifting up a little as it fades
       const rise = clamp(p.age / p.life, 0, 1) ** 3 * 12 * s;

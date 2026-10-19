@@ -13,7 +13,7 @@ const within = (v: unknown, lo: number, hi: number): number | null => (finite(v)
  */
 export function parseSkinReport(raw: unknown): SkinReport | null {
   if (!raw || typeof raw !== 'object') return null;
-  const { id, box, hitbox, lines, actions } = raw as Record<string, any>;
+  const { id, box, hitbox, body, lines, actions } = raw as Record<string, any>;
   if (!isSkinId(id) || !box || typeof box !== 'object' || !hitbox || typeof hitbox !== 'object') return null;
   const nums = [
     within(box.w, 16, 1024),
@@ -27,7 +27,17 @@ export function parseSkinReport(raw: unknown): SkinReport | null {
   ];
   if (nums.some((n) => n === null)) return null;
   const [w, h, anchorX, anchorY, x, y, hw, hh] = nums as number[];
-  return { id, box: { w: w!, h: h!, anchorX: anchorX!, anchorY: anchorY! }, hitbox: { x: x!, y: y!, w: hw!, h: hh! }, lines: parseLines(lines), actions: parseActions(actions) };
+  const report: SkinReport = {
+    id,
+    box: { w: w!, h: h!, anchorX: anchorX!, anchorY: anchorY! },
+    hitbox: { x: x!, y: y!, w: hw!, h: hh! },
+    lines: parseLines(lines),
+    actions: parseActions(actions),
+  };
+  // how big the picture looks is optional: without it the stage guesses from the hitbox
+  const looks = within(body, 4, 2048);
+  if (looks !== null) report.body = looks;
+  return report;
 }
 
 /** A mouse button going down or up in an overlay. */

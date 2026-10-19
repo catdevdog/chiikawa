@@ -90,6 +90,8 @@ export interface SkinReport {
   box: { w: number; h: number; anchorX: number; anchorY: number };
   /** the body inside the box, as fractions of it */
   hitbox: Rect;
+  /** how big the character looks: the side of a square with the area of its picture, in box pixels (see `bodyOf`) */
+  body?: number;
   /** what the skin says, by situation */
   lines: Lines;
   /** what the skin does now and then */

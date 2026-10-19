@@ -44,7 +44,14 @@ async function watchBattery(): Promise<void> {
   }
 }
 
-const reportOf = (id: string, skin: Skin): SkinReport => ({ id, box: { ...skin.box }, hitbox: { ...skin.hitbox }, lines: skin.lines, actions: skin.actions });
+const reportOf = (id: string, skin: Skin): SkinReport => ({
+  id,
+  box: { ...skin.box },
+  hitbox: { ...skin.hitbox },
+  ...(skin.body === undefined ? {} : { body: skin.body }),
+  lines: skin.lines,
+  actions: skin.actions,
+});
 
 /**
  * In Electron this window only draws: the main process simulates the pet for all monitors and sends what to

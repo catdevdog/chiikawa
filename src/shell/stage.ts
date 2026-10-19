@@ -1,6 +1,7 @@
 import { Flock, Pet } from '../engine';
 import type { NoticeEvent, PetView, Platform, Rect, SayEvent, Vec2 } from '../engine/types';
 import { clamp, inEllipse, mulberry32 } from '../engine/vec';
+import { bodyOf, fitTo } from '../shared/body';
 import { MAX_FRIENDS, type Area, type PointerReport, type Settings, type SkinReport, type ViewFrame } from '../shared/types';
 
 /** One overlay window, as the stage sees it. */
@@ -88,6 +89,14 @@ export class Stage {
   /** Everyone's current look, by skin id. For tests and diagnostics. */
   get views(): { id: string; view: PetView }[] {
     return this.members.map((m) => ({ id: m.id, view: m.pet.view }));
+  }
+
+  /** How big each pet looks (by its picture), the scale it is drawn at, and what that makes of it on screen. For tests and diagnostics. */
+  get sizes(): { id: string; body: number; scale: number; looks: number }[] {
+    return this.members.map((m) => {
+      const body = bodyOf(m.skin);
+      return { id: m.id, body, scale: m.pet.view.scale, looks: body * m.pet.view.scale };
+    });
   }
 
   /** Makes the main character say something for a situation, as if it had just happened (for tests and diagnostics). */
@@ -179,6 +188,7 @@ export class Stage {
     this.sync();
     const m = this.members.find((x) => x.id === skin.id);
     if (m) this.dress(m, skin);
+    this.refit();
   }
 
   setSettings(s: Settings): void {
@@ -295,6 +305,24 @@ export class Stage {
       next.push(m);
     }
     this.members = next;
+    this.refit();
+  }
+
+  /**
+   * How much larger or smaller than its skin draws it a pet is made. Alone, a pet is as big as its skin says. With
+   * friends about, every pet looks as big as the main character does (by the area of the picture, since skins fill
+   * their boxes differently), and the main character itself stays as it is.
+   */
+  private fit(m: Member): number {
+    const main = this.members[0];
+    if (!main || m === main || this.members.length < 2) return 1;
+    return fitTo(bodyOf(main.skin), bodyOf(m.skin));
+  }
+
+  /** Sizes every pet again: after anyone came or went, a skin changed, or the size was chosen anew. */
+  private refit(): void {
+    const scale = this.settings.scale;
+    for (const m of this.members) m.pet.setScale(scale * this.fit(m), scale);
   }
 
   /** The place for a friend that comes in: to either side of the middle of the first screen, the free one nearest it. */
@@ -352,7 +380,7 @@ export class Stage {
     const pet = m.pet;
     // only the main character is about the mouse; its friends go about on their own
     pet.setMode(main ? s.mode : 'wander');
-    pet.setScale(s.scale);
+    pet.setScale(s.scale * this.fit(m), s.scale);
     pet.setRoam(s.roam);
     pet.setSpeech(s.speech);
     pet.setTricks(s.tricks);

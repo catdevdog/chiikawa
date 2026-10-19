@@ -529,6 +529,8 @@ function exposeTestHooks(): void {
     view: () => (stage.view ? { ...stage.view, particles: [...stage.view.particles] } : null),
     /** every pet that is on the screens: the main character first, then its friends */
     views: () => stage.views.map(({ id, view }) => ({ id, ...view, particles: [...view.particles] })),
+    /** how big each of them looks: the picture's size, the scale it is drawn at, and the two multiplied */
+    sizes: () => stage.sizes,
     windows: () =>
       [...overlays.values()].map((o) => ({
         id: o.displayId,

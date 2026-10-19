@@ -697,6 +697,79 @@ describe('friends', () => {
     expect(ids(t)).toEqual(['usagi']);
   });
 
+  describe('size', () => {
+    // characters that fill their boxes differently: a rabbit that looks 100 big, a round bear of 125 and an otter of 80
+    const SIZED: Record<string, number> = { usagi: 100, chiikawa: 125, rakko: 80 };
+    function sized(main: string, friends: string[], over: Partial<Settings> = {}) {
+      const settings: Settings = { ...SETTINGS, skin: main, friends, ...over };
+      const t = setup([LEFT], settings);
+      t.stage.setSkin(skinOf(main, { body: SIZED[main] }));
+      for (const id of Object.keys(SIZED)) t.stage.setSkin(skinOf(id, { body: SIZED[id] }));
+      return { ...t, settings };
+    }
+    const scales = (t: { stage: Stage }): Record<string, number> => Object.fromEntries(t.stage.sizes.map((s) => [s.id, Number(s.scale.toFixed(3))]));
+
+    it('draws each friend as big as the main character looks, and the main character as its skin says', () => {
+      const t = sized('usagi', ['chiikawa', 'rakko']);
+      t.run(100);
+      expect(scales(t)).toEqual({ usagi: 1, chiikawa: 0.8, rakko: 1.25 });
+      for (const s of t.stage.sizes) expect(s.looks, s.id).toBeCloseTo(100);
+    });
+
+    it('also makes the body (what is clicked) as big', () => {
+      const t = sized('usagi', ['chiikawa']);
+      t.run(100);
+      const [main, friend] = t.stage.views.map((v) => v.view.hitbox);
+      expect(friend!.h / main!.h).toBeCloseTo(0.8);
+      expect(friend!.w / main!.w).toBeCloseTo(0.8);
+    });
+
+    it('leaves a pet that is alone as big as its skin says, and does it again when the friends are gone', () => {
+      const t = sized('chiikawa', []);
+      t.run(100);
+      expect(scales(t)).toEqual({ chiikawa: 1 });
+      t.stage.setSettings({ ...t.settings, friends: ['usagi'] });
+      t.run(32);
+      expect(scales(t)).toEqual({ chiikawa: 1, usagi: 1.25 });
+      t.stage.setSettings({ ...t.settings, friends: [] });
+      t.run(32);
+      expect(scales(t)).toEqual({ chiikawa: 1 });
+    });
+
+    it('keeps the chosen size for all of them', () => {
+      const t = sized('usagi', ['chiikawa'], { scale: 2 });
+      t.run(100);
+      expect(scales(t)).toEqual({ usagi: 2, chiikawa: 1.6 });
+      t.stage.setSettings({ ...t.settings, scale: 1.5 });
+      t.run(32);
+      expect(scales(t)).toEqual({ usagi: 1.5, chiikawa: 1.2 });
+    });
+
+    it('matches the friends to a new main character', () => {
+      const t = sized('usagi', ['chiikawa', 'rakko']);
+      t.run(100);
+      t.stage.setSettings({ ...t.settings, skin: 'chiikawa', friends: ['usagi', 'rakko'] });
+      t.run(32);
+      expect(scales(t)).toEqual({ chiikawa: 1, usagi: 1.25, rakko: 1.563 });
+    });
+
+    it('matches a friend to a main character whose picture was measured again', () => {
+      const t = sized('usagi', ['chiikawa']);
+      t.stage.setSkin(skinOf('usagi', { body: 150 }));
+      t.run(32);
+      expect(scales(t)).toEqual({ usagi: 1, chiikawa: 1.2 });
+    });
+
+    it('guesses the size of a skin that was not measured from its hitbox', () => {
+      const t = setup([LEFT], { ...SETTINGS, skin: 'usagi', friends: ['rakko'] });
+      t.stage.setSkin(skinOf('usagi'));
+      t.stage.setSkin(skinOf('rakko'));
+      t.run(100);
+      // the same box and hitbox: the same size, so nothing changes
+      expect(scales(t)).toEqual({ usagi: 1, rakko: 1 });
+    });
+  });
+
   it('lets the mouse be about the main character only: with the pet stuck to the cursor the friends are not', () => {
     const t = many('chiikawa', ['hachiware', 'usagi']);
     t.stage.setSettings({ ...t.settings, mode: 'attach' });

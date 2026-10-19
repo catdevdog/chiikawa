@@ -1,6 +1,7 @@
 import type { Actions, Lines, PetState, Rect } from '../engine/types';
 import { isSkinId } from '../shared/ids';
 import { parseManifest, type PoseSource, type SheetPose } from '../shared/manifest';
+import { measureBody } from './measure';
 import { resolvePose } from './poses';
 
 export interface Frame {
@@ -35,6 +36,8 @@ export interface Skin {
   name: string;
   box: { w: number; h: number; anchorX: number; anchorY: number };
   hitbox: Rect;
+  /** how big the character looks (see `measureBody`), when its picture could be measured */
+  body?: number;
   /** 1 if the artwork faces right, -1 if it faces left */
   artFacing: 1 | -1;
   /** the picture for a state; while it is acting, the pose of the action (`action`) when the skin has it */
@@ -74,11 +77,14 @@ export async function loadSkin(id: string, base = '/skins'): Promise<Skin> {
   );
   const sprites = new Map(entries);
   const available = new Set(sprites.keys());
+  const idle = sprites.get(resolvePose('idle', available, manifest.states));
+  const body = idle ? measureBody(idle.frameAt(0), size) : null;
   return {
     id,
     name: manifest.name ?? id,
     box: { w: size.w, h: size.h, anchorX: manifest.anchor!.x, anchorY: manifest.anchor!.y },
     hitbox: manifest.hitbox!,
+    ...(body === null ? {} : { body }),
     artFacing: manifest.facing === 'left' ? -1 : 1,
     spriteFor: (state, action) => (action ? sprites.get(action) : undefined) ?? sprites.get(resolvePose(state, available, manifest.states))!,
     motionOff: (state) => state !== 'act' && manifest.motion?.[state] === 'off',

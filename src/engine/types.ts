@@ -196,6 +196,8 @@ export interface PetConfig {
   sprite: { w: number; h: number; anchorX: number; anchorY: number };
   hitbox: Rect;
   scale: number;
+  /** the scale of the words above the pet, when it differs from the pet's own */
+  textScale?: number;
   roam: Roam;
   walkSpeed: number;
   runSpeed: number;

@@ -14,6 +14,9 @@ const CAST = ['chiikawa', 'hachiware', 'usagi', 'rakko'];
 /** The skins the installer ships: every `from: skins/<id>` entry of electron-builder.yml. */
 const bundled = [...readFileSync(path.join(ROOT, 'electron-builder.yml'), 'utf8').matchAll(/from:\s*skins\/([\w.-]+)/g)].map((m) => m[1]!);
 
+/** What each of them is called in Korean: nobody in the show calls anybody by name, so no line may say one. */
+const NAMES = bundled.map((id) => JSON.parse(readFileSync(path.join(ROOT, 'skins', id, 'manifest.json'), 'utf8')).names?.ko as string).filter(Boolean);
+
 /** Width and height from a PNG's IHDR chunk. */
 function pngSize(file: string): { w: number; h: number } {
   const b = readFileSync(file);
@@ -105,6 +108,16 @@ describe('bundled skins', () => {
             }
           }
         }
+      });
+
+      it('never calls anybody by name', () => {
+        const raw = JSON.parse(readFileSync(path.join(dir, 'manifest.json'), 'utf8'));
+        const said: string[] = Object.values<unknown[]>(raw.lines ?? {})
+          .flat()
+          .map((l) => (typeof l === 'string' ? l : (l as { text: string }).text));
+        for (const action of Object.values<{ say?: string[] }>(raw.actions ?? {})) said.push(...(action.say ?? []));
+        expect(said.length).toBeGreaterThan(0);
+        for (const name of NAMES) for (const text of said) expect(text, `${id}: "${text}" says the name ${name}`).not.toContain(name);
       });
 
       it('stays small enough to bundle', () => {

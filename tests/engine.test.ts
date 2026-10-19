@@ -712,6 +712,18 @@ describe('speech', () => {
     expect(latest(big).size!).toBeCloseTo(latest(small).size! * 2);
   });
 
+  it('words can keep one size while the pet is drawn at another (a friend made as big as the others)', () => {
+    const plain = talker();
+    const bigger = talker({ config: { scale: 2 } });
+    bigger.setScale(1.5, 1);
+    plain.update(16);
+    bigger.update(16);
+    plain.say('click');
+    bigger.say('click');
+    expect(latest(bigger).size!).toBeCloseTo(latest(plain).size!);
+    expect(bigger.view.scale).toBe(1.5);
+  });
+
   it('only one set of words is up at a time: a new answer cuts the old words off', () => {
     const pet = talker();
     pet.update(16);
