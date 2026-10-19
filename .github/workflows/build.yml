@@ -1,0 +1,63 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # the Electron binary is not needed for type checks, unit tests and bundling
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  windows:
+    needs: check
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            release/DesktopBuddy-Setup.exe
+            release/DesktopBuddy-Portable.zip
+          if-no-files-found: error
+      # pushing a tag like v0.1.0 publishes the installer and the portable zip as a GitHub release
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$GITHUB_REF_NAME"
+          release/DesktopBuddy-Setup.exe release/DesktopBuddy-Portable.zip
+          --title "$GITHUB_REF_NAME" --generate-notes
