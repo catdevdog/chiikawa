@@ -1,0 +1,36 @@
+{
+  "name": "Usagi",
+  "size": {
+    "w": 126,
+    "h": 128
+  },
+  "anchor": {
+    "x": 0.5,
+    "y": 0.9877
+  },
+  "hitbox": {
+    "x": 0.1632,
+    "y": 0.0288,
+    "w": 0.6736,
+    "h": 0.9588
+  },
+  "facing": "left",
+  "poses": {
+    "idle": "idle.png",
+    "run": "run.png",
+    "sleep": "sleep.png",
+    "held": "held.png",
+    "land": "land.png",
+    "surprised": "surprised.png",
+    "happy": {
+      "sheet": "happy.png",
+      "frameWidth": 239,
+      "frameHeight": 243,
+      "count": 13,
+      "durations": 100
+    }
+  },
+  "motion": {
+    "happy": "off"
+  }
+}

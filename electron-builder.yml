@@ -12,6 +12,8 @@ files:
 extraResources:
   - from: skins/default
     to: skins/default
+  - from: skins/usagi
+    to: skins/usagi
 asar: true
 # releases are published by the workflow with gh; the app has no auto-updater yet
 publish: null

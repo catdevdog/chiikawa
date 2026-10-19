@@ -14,7 +14,7 @@ export const DEFAULT_SETTINGS: Settings = {
   mode: 'auto',
   scale: 1,
   roam: 'free',
-  skin: 'default',
+  skin: 'usagi',
   clickThrough: false,
   autoStart: false,
 };
