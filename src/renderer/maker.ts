@@ -10,6 +10,7 @@ import {
   type ItemInput,
   type Prepared,
 } from '../maker/build';
+import { ANIM_PRESETS, type AnimPreset, type Rig } from '../maker/animate';
 import { guessPose, slugify } from '../maker/guess';
 import {
   DEFAULT_BG,
@@ -67,6 +68,11 @@ interface Item {
   scaleSet: boolean;
   motionOff: boolean;
   flip: boolean;
+  /** make a still image move (blinking, swaying ears and tail) */
+  anim: AnimPreset | '';
+  animAmount: number;
+  /** parts of the picture given by hand; no control for it, scripts may set it */
+  rig?: Partial<Rig>;
   cache?: { key: string; value: Prepared | null };
 }
 
@@ -123,8 +129,23 @@ function makeItem(name: string, frames: Raster[], durations: number[]): Item {
     scaleSet: false,
     motionOff: frames.length > 1,
     flip: false,
+    anim: '',
+    animAmount: 1,
   };
 }
+
+/** A hand-given rig is in full-size pixels; the preview works on smaller copies. */
+function scaleRig(rig: Partial<Rig>, k: number): Partial<Rig> {
+  const out: Partial<Rig> = {};
+  if ('ears' in rig) out.ears = rig.ears ? { top: rig.ears.top * k, base: rig.ears.base * k } : null;
+  if ('eyes' in rig) out.eyes = (rig.eyes ?? []).map((e) => ({ x: e.x * k, y: e.y * k, rx: e.rx * k, ry: e.ry * k }));
+  if ('tail' in rig) out.tail = rig.tail ? { x: rig.tail.x * k, y: rig.tail.y * k, r: rig.tail.r * k, ax: rig.tail.ax * k, ay: rig.tail.ay * k } : null;
+  if ('blades' in rig) out.blades = rig.blades ? { cx: rig.blades.cx * k, top: rig.blades.top * k, bottom: rig.blades.bottom * k } : null;
+  return out;
+}
+
+/** Which way ears and tail stream when running: toward +x unless the artwork faces right. */
+const backward = (): 1 | -1 => ($<HTMLSelectElement>('facing').value === 'left' ? 1 : -1);
 
 function bgOptions(it: Item, factor: number): BgOptions | null {
   if (it.bg.mode === 'off') return null;
@@ -143,12 +164,16 @@ const toInput = (it: Item, full: boolean): ItemInput => ({
   scale: it.scale,
   motionOff: it.motionOff,
   flip: it.flip,
+  anim:
+    it.anim && it.frames.length === 1
+      ? { preset: it.anim, amount: it.animAmount, back: backward(), ...(it.rig ? { rig: full ? it.rig : scaleRig(it.rig, it.smallFactor) } : {}) }
+      : undefined,
 });
 
-/** Background removal at preview size, remembered until the background or mirroring changes. */
+/** Background removal and movement at preview size, remembered until those settings change. */
 function cachedPrepared(it: Item): Prepared | null {
   const bg = bgOptions(it, it.smallFactor);
-  const key = JSON.stringify([bg, it.flip]);
+  const key = JSON.stringify([bg, it.flip, it.anim, it.animAmount, backward(), it.rig ?? null]);
   if (it.cache?.key !== key) {
     it.cache = { key, value: prepareItem({ ...toInput(it, false), pose: 'idle', scale: 1, motionOff: false }, 24) };
   }
@@ -231,7 +256,8 @@ function renderItem(it: Item): HTMLLIElement {
   info.className = 'hint';
   const modeLabel = { auto: '배경 자동', color: '배경 색 지정', off: '배경 그대로' }[it.bg.mode];
   const sizeLabel = Math.abs(it.scale - 1) > 0.005 ? ` · 크기 ${Math.round(it.scale * 100)}%` : '';
-  info.textContent = `${it.frames.length > 1 ? `움직임 ${it.frames.length}프레임` : '정지 이미지'} · ${modeLabel}${sizeLabel}${it.flip ? ' · 반전' : ''}`;
+  const made = it.anim && it.frames.length === 1 && cachedPrepared(it)?.moves ? ' · 움직임 넣음' : '';
+  info.textContent = `${it.frames.length > 1 ? `움직임 ${it.frames.length}프레임` : '정지 이미지'} · ${modeLabel}${sizeLabel}${it.flip ? ' · 반전' : ''}${made}`;
   meta.append(name, info);
 
   const bar = document.createElement('div');
@@ -294,6 +320,8 @@ const keyColor = $<HTMLInputElement>('keyColor');
 const scale = $<HTMLInputElement>('scale');
 const motionOff = $<HTMLInputElement>('motionOff');
 const flip = $<HTMLInputElement>('flip');
+const anim = $<HTMLSelectElement>('anim');
+const animAmount = $<HTMLInputElement>('animAmount');
 const frameRow = $('frameRow');
 const frameInput = $<HTMLInputElement>('frame');
 const modeRadios = [...document.querySelectorAll<HTMLInputElement>('input[name="bgmode"]')];
@@ -342,6 +370,12 @@ function refreshEditor(): void {
   motionOff.checked = it.motionOff;
   motionOff.disabled = it.frames.length < 2;
   flip.checked = it.flip;
+  anim.value = it.anim;
+  anim.disabled = it.frames.length > 1;
+  animAmount.value = String(Math.round(it.animAmount * 100));
+  animAmount.disabled = !it.anim || it.frames.length > 1;
+  $('animAmountVal').textContent = `${Math.round(it.animAmount * 100)}%`;
+  showAnimInfo(it);
   frameRow.hidden = it.frames.length < 2;
   frameInput.max = String(it.frames.length - 1);
   frameInput.value = String(previewFrame);
@@ -351,6 +385,27 @@ function refreshEditor(): void {
   $('featherVal').textContent = String(it.bg.feather);
   $('scaleVal').textContent = `${Math.round(it.scale * 100)}%`;
   paintEditor();
+}
+
+/** Tells what the movement found to move, so a picture that stays still does not look like a bug. */
+function showAnimInfo(it: Item): void {
+  const el = $('animInfo');
+  if (it.frames.length > 1) {
+    el.textContent = '이미 움직이는 이미지라서 따로 넣지 않아요.';
+    return;
+  }
+  if (!it.anim) {
+    el.textContent = '정지 이미지에 눈 깜빡임, 귀·꼬리 흔들림을 코드로 넣어요. 그림은 그대로고 몸에서 해당 부분만 살짝 움직여요.';
+    return;
+  }
+  const moves = cachedPrepared(it)?.moves;
+  if (!moves) {
+    el.textContent = '움직일 부분(눈·귀·꼬리)을 찾지 못해서 정지 이미지 그대로 써요.';
+    return;
+  }
+  const found = [moves.eyes ? `눈 ${moves.eyes}개` : '', moves.ears ? '귀' : '', moves.tail ? '꼬리' : ''].filter(Boolean).join(', ');
+  const frames = cachedPrepared(it)?.frames.length ?? 0;
+  el.textContent = `${found}를 찾았어요. ${frames}프레임짜리 움직임이 만들어져요.`;
 }
 
 let editorPaintPending = false;
@@ -404,6 +459,20 @@ scale.addEventListener(
 );
 motionOff.addEventListener('change', () => selected && ((selected.motionOff = motionOff.checked), changed()));
 flip.addEventListener('change', () => selected && ((selected.flip = flip.checked), renderList(), changed()));
+anim.addEventListener('change', () => {
+  if (!selected) return;
+  selected.anim = ANIM_PRESETS.includes(anim.value as AnimPreset) ? (anim.value as AnimPreset) : '';
+  renderList();
+  refreshEditor();
+  schedulePreview();
+});
+animAmount.addEventListener('input', () => {
+  if (!selected) return;
+  selected.animAmount = Number(animAmount.value) / 100;
+  $('animAmountVal').textContent = `${Math.round(selected.animAmount * 100)}%`;
+  showAnimInfo(selected);
+  schedulePreview();
+});
 keyColor.addEventListener('input', () => {
   if (!selected) return;
   selected.bg.key = fromHex(keyColor.value);
@@ -576,6 +645,8 @@ for (const b of document.querySelectorAll<HTMLButtonElement>('button[data-mode]'
 $<HTMLInputElement>('petScale').addEventListener('input', (e) => pet.setScale(Number((e.target as HTMLInputElement).value)));
 $('facing').addEventListener('change', () => {
   if (previewSkin) previewSkin.artFacing = $<HTMLSelectElement>('facing').value === 'left' ? -1 : 1;
+  // running ears stream the other way now
+  if (items.some((it) => it.anim === 'run')) schedulePreview();
 });
 
 let last = performance.now();

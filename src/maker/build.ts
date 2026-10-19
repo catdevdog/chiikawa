@@ -1,5 +1,6 @@
 import { PET_STATES, type PetState, type Rect } from '../engine/types';
 import type { PoseSource, SkinManifest } from '../shared/manifest';
+import { animate, type AnimSpec } from './animate';
 import {
   alphaBounds,
   buildSheet,
@@ -28,6 +29,8 @@ export interface ItemInput {
   motionOff: boolean;
   /** mirror the image, for artwork that faces the other way from the rest of the skin */
   flip?: boolean;
+  /** make a still image move (blinking, swaying ears and tail); ignored for images that already move */
+  anim?: AnimSpec;
 }
 
 export interface BuiltPose {
@@ -62,6 +65,8 @@ export interface Prepared {
   durations: number[];
   w: number;
   h: number;
+  /** what the animation found to move; null when one was asked for and nothing was found, absent otherwise */
+  moves?: { eyes: number; ears: boolean; tail: boolean } | null;
 }
 
 /**
@@ -72,12 +77,23 @@ export function prepareItem(item: ItemInput, maxFrames = 48): Prepared | null {
   if (item.frames.length === 0) return null;
   const kept = decimateFrames(item.frames, item.durations, maxFrames);
   const cleaned = item.bg ? kept.frames.map((f) => removeBackground(f, item.bg!)) : kept.frames;
+  let frames = cleaned;
+  let durations = kept.durations;
+  let moves: Prepared['moves'];
+  if (item.anim && cleaned.length === 1) {
+    const moving = animate(cleaned[0]!, item.anim);
+    moves = moving ? { eyes: moving.rig.eyes.length, ears: !!moving.rig.ears, tail: !!moving.rig.tail } : null;
+    if (moving) {
+      frames = moving.frames;
+      durations = moving.durations;
+    }
+  }
   // one box for all frames, so an animation does not jitter against itself
   let box: Rect | null = null;
-  for (const f of cleaned) box = unionRect(box, alphaBounds(f));
+  for (const f of frames) box = unionRect(box, alphaBounds(f));
   if (!box) return null;
-  const trimmed = cleaned.map((f) => crop(f, box!));
-  return { item, frames: item.flip ? trimmed.map(flipHorizontal) : trimmed, durations: kept.durations, w: box.w, h: box.h };
+  const trimmed = frames.map((f) => crop(f, box!));
+  return { item, frames: item.flip ? trimmed.map(flipHorizontal) : trimmed, durations, w: box.w, h: box.h, moves };
 }
 
 /**

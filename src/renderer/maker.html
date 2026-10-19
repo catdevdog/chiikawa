@@ -364,6 +364,21 @@
             <p class="hint" style="margin: 4px 0 0">
               크기가 다른 같은 그림(작은 GIF와 큰 PNG 등)은 불러올 때 자동으로 맞춰요. 포즈마다 크기가 다르면 여기서 조절하세요.
             </p>
+            <div class="grid">
+              <label for="anim">움직임 넣기</label>
+              <select id="anim">
+                <option value="">없음 (그대로)</option>
+                <option value="idle">눈 깜빡이고 귀 까딱 (기본 자세에)</option>
+                <option value="walk">귀와 꼬리가 흔들 (걷기에)</option>
+                <option value="run">귀가 뒤로 날려요 (달리기에)</option>
+                <option value="sleep">눈 감고 가끔 귀 움찔 (잠자기에)</option>
+              </select>
+              <span></span>
+              <label for="animAmount">움직임 세기</label>
+              <input id="animAmount" type="range" min="40" max="200" step="10" />
+              <span id="animAmountVal" class="mono"></span>
+            </div>
+            <p id="animInfo" class="hint" style="margin: 4px 0 0"></p>
             <label class="row" style="margin-top: 6px"><input id="flip" type="checkbox" /> 좌우 반전 (다른 이미지와 반대쪽을 보고 있을 때)</label>
             <label class="row" style="margin-top: 6px"><input id="motionOff" type="checkbox" /> 이미지 자체 움직임만 쓰기 (통통 튀기 끄기)</label>
           </fieldset>

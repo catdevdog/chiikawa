@@ -534,6 +534,9 @@ export class Pet {
     if (this.state !== s || force) {
       this.state = s;
       this.stateMs = 0;
+      // every walk or run starts at the beginning of its step, so a skin's own walk cycle (which also starts
+      // at the beginning of the state) stays in step with the hop
+      if (s === 'walk' || s === 'run') this.gait = 0;
     }
   }
 

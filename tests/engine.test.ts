@@ -85,6 +85,21 @@ describe('wander', () => {
     expect(maxLift).toBeGreaterThan(2);
   });
 
+  it('starts every walk at the beginning of its step, so a skin\'s own walk cycle stays in step with the hop', () => {
+    const pet = make({ mode: 'wander' });
+    const starts: number[] = [];
+    let before: PetState = pet.view.state;
+    for (let i = 0; i < 20_000 && starts.length < 4; i++) {
+      pet.update(16);
+      const v = pet.view;
+      if ((v.state === 'walk' || v.state === 'run') && before !== v.state) starts.push(v.lift);
+      before = v.state;
+    }
+    expect(starts.length).toBeGreaterThanOrEqual(3);
+    // a hop is at most 8px high and a single 16ms frame into it is barely off the ground
+    for (const lift of starts) expect(lift).toBeLessThan(1.2);
+  });
+
   it('stays on the floor in floor roam mode', () => {
     const pet = make({ mode: 'wander', config: { roam: 'floor' } });
     run(pet, 60_000, (p) => {
