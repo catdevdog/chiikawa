@@ -39,12 +39,12 @@ const ko = {
   updateUpToDate: (version: string): string => `최신 버전이에요 (v${version})`,
   updateDownloading: (version: string, percent: number): string => `새 버전 v${version} 받는 중… ${percent}%`,
   updateReady: (version: string): string => `v${version} 설치하고 다시 시작`,
-  updateFailed: '업데이트 확인에 실패했어요 — 다시 시도',
+  updateFailed: '업데이트 확인에 실패했습니다. 다시 시도',
   updateOpenPage: '새 버전 확인 (GitHub 열기)',
   updateReadyBody: (version: string): string =>
-    `새 버전(v${version})이 준비됐어요. 트레이 메뉴의 '설치하고 다시 시작'을 누르거나, 종료할 때 자동으로 설치돼요.`,
+    `새 버전(v${version})이 준비되었습니다. 트레이 메뉴의 '설치하고 다시 시작'을 누르거나 종료할 때 자동으로 설치됩니다.`,
   whatsNew: '바뀐 점 보기',
-  whatsNewTitle: (version: string): string => `v${version} 업데이트 완료`,
+  whatsNewTitle: (version: string): string => `v${version} 업데이트를 마쳤습니다.`,
   quit: '종료',
 };
 
