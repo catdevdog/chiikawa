@@ -46,6 +46,17 @@ describe('bundled skins', () => {
         }
       });
 
+      it('has lines that are all kept (nothing is dropped as malformed) and a good text colour', () => {
+        const raw = JSON.parse(readFileSync(path.join(dir, 'manifest.json'), 'utf8'));
+        const manifest = parseManifest(raw, id);
+        const kept: Record<string, unknown[]> = manifest.lines ?? {};
+        for (const [event, list] of Object.entries<unknown[]>(raw.lines ?? {})) {
+          expect(Object.keys(kept), `${id}: lines.${event} is not a known situation or is empty`).toContain(event);
+          expect(kept[event]!.length, `${id}: lines.${event}`).toBe(list.length);
+        }
+        if (raw.textColor !== undefined) expect(manifest.textColor).toBe(raw.textColor);
+      });
+
       it('stays small enough to bundle', () => {
         const bytes = readdirSync(dir).reduce((sum, f) => sum + statSync(path.join(dir, f)).size, 0);
         expect(bytes).toBeLessThan(4 * 1024 * 1024);
