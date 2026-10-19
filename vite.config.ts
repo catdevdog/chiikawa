@@ -2,6 +2,7 @@ import { createReadStream, mkdirSync, readdirSync, readFileSync, renameSync, rmS
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
+import { skinTitle } from './src/shared/skin-name.ts';
 import { validateSkinPayload } from './src/shared/skin-payload.ts';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
@@ -23,7 +24,7 @@ function listSkins(): { id: string; name: string; builtin: boolean }[] {
     if (!entry.isDirectory()) continue;
     try {
       const manifest = JSON.parse(readFileSync(path.join(skinsDir, entry.name, 'manifest.json'), 'utf8'));
-      out.push({ id: entry.name, name: typeof manifest.name === 'string' ? manifest.name : entry.name, builtin: entry.name === 'default' });
+      out.push({ id: entry.name, name: skinTitle(manifest, 'ko', entry.name), builtin: entry.name === 'default' });
     } catch {
       // not a skin folder
     }

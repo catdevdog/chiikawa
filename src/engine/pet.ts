@@ -3,6 +3,7 @@ import {
   type Line,
   type Lines,
   type Mode,
+  type NoticeEvent,
   type Particle,
   type ParticleKind,
   type PetConfig,
@@ -36,6 +37,11 @@ const RUB_WINDOW_MS = 1200;
 const RUB_REVERSALS = 4;
 const RUB_MIN_STEP = 4;
 const MAX_PARTICLES = 24;
+/** a pet called from farther than this (or from another screen) drops in at the cursor instead of running over */
+const CALL_FAR = 900;
+/** a called pet that has not arrived by now drops in; if it still has not arrived this long after, it stops trying */
+const CALL_DROP_MS = 6000;
+const CALL_GIVE_UP_MS = 6000;
 
 export interface PetOptions {
   /** one screen from the origin; its bottom edge is the floor */
@@ -82,6 +88,10 @@ export class Pet {
   private fleeDir: Vec2 | null = null;
   private lastFleeAt = -Infinity;
   private holder: Holder | null = null;
+  /** called by the user and on the way to the cursor; how long that has taken, and whether it has dropped in already */
+  private summoned = false;
+  private summonMs = 0;
+  private summonDropped = false;
 
   private cursor: Vec2 | null = null;
   private prevCursor: Vec2 | null = null;
@@ -185,6 +195,38 @@ export class Pet {
     const holding = this.particles.some((p) => p.kind === 'text' && p.style === 'hold' && p.age < p.life - 400);
     const line = this.speaker.pick(event, this.time, holding);
     if (line) this.spawnText(line);
+  }
+
+  /**
+   * The user calls the pet. It wakes up and runs to the cursor, or drops in from above when that is far away or on
+   * another screen, and answers when it gets there. A pet that hangs off the cursor just answers.
+   */
+  call(): void {
+    // someone is dragging it right now; the cursor is busy
+    if (this.holder === 'user') return;
+    const c = this.cursor;
+    if (this.holder === 'cursor' || !c) {
+      this.say('call');
+      return;
+    }
+    this.summoned = true;
+    this.summonMs = 0;
+    this.summonDropped = false;
+    this.target = null;
+    this.fleeDir = null;
+    this.interactionIdleMs = 0;
+    if (this.state === 'sleep') this.rouse();
+    if (dist(this.pos, c) > this.k(CALL_FAR) || this.region.indexAt(this.pos) !== this.region.indexAt(c)) this.dropIn(c);
+  }
+
+  /** Something happened on the computer: the pet perks up (or is startled) and says so. */
+  notice(event: NoticeEvent): void {
+    // in someone's hand or in the air it can only say it
+    if (this.state !== 'held' && this.state !== 'fall' && this.state !== 'land') {
+      if (this.state === 'sleep') this.rouse();
+      this.react(event === 'welcome' || event === 'plug' ? 'happy' : 'surprised');
+    }
+    this.say(event);
   }
 
   setMode(mode: Mode): void {
@@ -306,6 +348,10 @@ export class Pet {
       this.startFall(0, 0);
       return;
     }
+    if (this.summoned) {
+      this.stepSummon(dt);
+      return;
+    }
     if (this.state === 'sleep') {
       if (!this.shouldWake()) {
         this.zIn -= dt;
@@ -323,6 +369,55 @@ export class Pet {
     if (this.state === 'surprised') return;
     if (eff === 'follow') this.stepFollow(dt);
     else this.stepWander(dt);
+  }
+
+  /** On the way to a user who called: runs to the cursor, and answers when it is beside it. */
+  private stepSummon(dt: number): void {
+    const c = this.cursor;
+    if (!c) {
+      this.summoned = false;
+      return;
+    }
+    this.summonMs += dt;
+    const floor = this.cfg.roam === 'floor';
+    const d = floor ? Math.abs(c.x - this.center().x) : dist(this.center(), c);
+    const stop = this.k(this.cfg.followStop);
+    const late = this.summonMs > (this.summonDropped ? CALL_GIVE_UP_MS : CALL_DROP_MS);
+    if (late && !this.summonDropped) {
+      this.dropIn(c);
+      return;
+    }
+    if (d <= stop + 2 || late) {
+      this.summoned = false;
+      this.target = null;
+      this.facing = c.x >= this.pos.x ? 1 : -1;
+      this.react('happy');
+      this.say('call');
+      return;
+    }
+    this.enter('run');
+    this.moveToward(this.goalBeside(c, d, stop), this.k(this.cfg.runSpeed), dt);
+  }
+
+  /** Falls in from the top of the screen at the cursor, wherever the pet was. */
+  private dropIn(c: Vec2): void {
+    const at = this.clampFeet(c);
+    this.pos = { x: at.x, y: this.region.ceiling(at, this.reach()) };
+    this.summonDropped = true;
+    this.summonMs = 0;
+    this.startFall(0, 0);
+  }
+
+  /** Where the feet go to stand `stop` away from the cursor, on the side the pet is on. */
+  private goalBeside(c: Vec2, d: number, stop: number): Vec2 {
+    const floor = this.cfg.roam === 'floor';
+    const center = this.center();
+    const ux = floor ? Math.sign(center.x - c.x) || 1 : (center.x - c.x) / d;
+    const uy = floor ? 0 : (center.y - c.y) / d;
+    return this.clampFeet({
+      x: c.x + ux * stop,
+      y: floor ? this.pos.y : c.y + uy * stop + (this.pos.y - center.y),
+    });
   }
 
   private stepWander(dt: number): void {
@@ -369,12 +464,7 @@ export class Pet {
     const start = this.k(this.cfg.followStart);
     const stop = this.k(this.cfg.followStop);
     if (d > start || (moving && d > stop + 2)) {
-      const ux = floor ? Math.sign(center.x - c.x) || 1 : (center.x - c.x) / d;
-      const uy = floor ? 0 : (center.y - c.y) / d;
-      const goal = this.clampFeet({
-        x: c.x + ux * stop,
-        y: floor ? this.pos.y : c.y + uy * stop + (this.pos.y - center.y),
-      });
+      const goal = this.goalBeside(c, d, stop);
       this.target = null;
       if (!moving) this.say('follow');
       this.enter(d > start * 2.2 ? 'run' : 'walk');
@@ -506,10 +596,15 @@ export class Pet {
   }
 
   private wake(): void {
+    this.rouse();
+    this.say('wake');
+  }
+
+  /** Gets up from sleep without a word. */
+  private rouse(): void {
     this.sleepCursor = null;
     this.interactionIdleMs = 0;
     this.settle();
-    this.say('wake');
   }
 
   /** Startles when the cursor races toward the pet. Only used while wandering. */
@@ -568,6 +663,7 @@ export class Pet {
 
   private startHold(): void {
     this.holder = 'cursor';
+    this.summoned = false;
     this.dragging = false;
     this.press = null;
     this.swing = 0;
@@ -679,6 +775,7 @@ export class Pet {
   private startDrag(from: Vec2): void {
     this.dragging = true;
     this.holder = 'user';
+    this.summoned = false;
     this.grab = { x: this.pos.x - from.x, y: this.pos.y - from.y };
     this.samples = [{ p: { x: from.x, y: from.y }, t: this.time }];
     this.target = null;

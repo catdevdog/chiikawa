@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { SAY_EVENTS } from '../src/engine/types';
 import { DEFAULT_SETTINGS } from '../src/shared/types';
 import { parseManifest, poseFiles } from '../src/shared/manifest';
 
@@ -33,6 +34,12 @@ describe('bundled skins', () => {
         for (const target of Object.values(manifest.states ?? {})) expect(manifest.poses[target!], `states -> ${target}`).toBeTruthy();
       });
 
+      it('has a Korean name for the menu, and a plain one for everywhere else', () => {
+        const manifest = parseManifest(JSON.parse(readFileSync(path.join(dir, 'manifest.json'), 'utf8')), id);
+        expect(manifest.name, `${id}: name`).toBeTruthy();
+        expect(manifest.names?.ko, `${id}: names.ko`).toMatch(/^[가-힣]+$/);
+      });
+
       it('has sprite sheets that really contain their frames', () => {
         const manifest = parseManifest(JSON.parse(readFileSync(path.join(dir, 'manifest.json'), 'utf8')), id);
         for (const pose of Object.values(manifest.poses)) {
@@ -55,6 +62,11 @@ describe('bundled skins', () => {
           expect(kept[event]!.length, `${id}: lines.${event}`).toBe(list.length);
         }
         if (raw.textColor !== undefined) expect(manifest.textColor).toBe(raw.textColor);
+      });
+
+      it('has something to say in every situation', () => {
+        const manifest = parseManifest(JSON.parse(readFileSync(path.join(dir, 'manifest.json'), 'utf8')), id);
+        for (const event of SAY_EVENTS) expect(manifest.lines?.[event]?.length ?? 0, `${id}: lines.${event}`).toBeGreaterThan(0);
       });
 
       it('stays small enough to bundle', () => {

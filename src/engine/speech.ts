@@ -80,6 +80,13 @@ const RULES: Record<SayEvent, Rule> = {
   sleep: { chance: 0.8, cooldown: 20_000 },
   wake: { chance: 1, cooldown: 8_000 },
   cross: { chance: 0.7, cooldown: 20_000 },
+  // the user asked for the pet, or the computer did something: always answered, even over other words
+  call: { chance: 1, cooldown: 1_500, urgent: true },
+  // an unlock and a wake from sleep come one after the other, and a loose plug flickers
+  welcome: { chance: 1, cooldown: 45_000, urgent: true },
+  plug: { chance: 1, cooldown: 20_000, urgent: true },
+  unplug: { chance: 1, cooldown: 20_000, urgent: true },
+  lowBattery: { chance: 1, cooldown: 120_000, urgent: true },
 };
 
 /** Two lines never come closer than this, unless the second one is an urgent answer. */

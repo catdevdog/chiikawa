@@ -156,6 +156,24 @@ describe('Speaker', () => {
     expect(sp.pick('idle', 20_000, false)).not.toBeNull();
   });
 
+  it('a call and the news of the computer are answers: kept at the level "reactions" and heard over other words', () => {
+    const sp = new Speaker(() => 0);
+    sp.setLines(parseLines({ call: ['a'], welcome: ['b'], plug: ['c'], unplug: ['d'], lowBattery: ['e'] }));
+    sp.setLevel('reactions');
+    let now = 10_000;
+    for (const e of ['call', 'welcome', 'plug', 'unplug', 'lowBattery'] as const) expect(sp.pick(e, (now += 10), true), e).not.toBeNull();
+  });
+
+  it('does not repeat the news while it is fresh: an unlock and a wake from sleep come together', () => {
+    const sp = new Speaker(() => 0);
+    sp.setLines(parseLines({ welcome: ['b'], plug: ['c'] }));
+    expect(sp.pick('welcome', 10_000, false)).not.toBeNull();
+    expect(sp.pick('welcome', 14_000, false)).toBeNull();
+    expect(sp.pick('welcome', 60_000, false)).not.toBeNull();
+    expect(sp.pick('plug', 60_100, false)).not.toBeNull();
+    expect(sp.pick('plug', 70_000, false)).toBeNull();
+  });
+
   it('every situation has a rule', () => {
     const sp = new Speaker(() => 0);
     sp.setLines(Object.fromEntries(SAY_EVENTS.map((e) => [e, [{ text: '야하!', style: 'float' }]])));

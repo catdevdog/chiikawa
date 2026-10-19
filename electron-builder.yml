@@ -8,6 +8,7 @@ files:
   - dist/**/*
   - assets/**/*
   - package.json
+  - CHANGELOG.md
   - "!**/*.map"
 extraResources:
   - from: skins/default

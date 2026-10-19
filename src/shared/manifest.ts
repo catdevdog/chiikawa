@@ -1,5 +1,6 @@
 import { parseLines } from '../engine/speech.ts';
 import { DEFAULT_CONFIG, PET_STATES, type Lines, type PetState, type Rect } from '../engine/types.ts';
+import { parseNames, type Lang } from './skin-name.ts';
 
 /** A pose stored as a sprite sheet: frames laid out left to right, top to bottom. */
 export interface SheetPose {
@@ -17,6 +18,8 @@ export type PoseSource = string | SheetPose;
 /** manifest.json of a skin pack. Only `poses.idle` is required. */
 export interface SkinManifest {
   name?: string;
+  /** the name in other languages, shown in the menu when the app speaks that language: `{ "ko": "치이카와" }` */
+  names?: Partial<Record<Lang, string>>;
   /** sprite box in px at scale 1; every pose is fitted into it, bottom-centred */
   size?: { w: number; h: number };
   /** feet point inside the box, as fractions */
@@ -78,6 +81,7 @@ export function parseManifest(raw: unknown, id: string): SkinManifest {
   const d = DEFAULT_CONFIG;
   return {
     name: typeof m.name === 'string' ? m.name : undefined,
+    names: parseNames(m.names),
     size: { w: num(m.size?.w, d.sprite.w, 16, 1024), h: num(m.size?.h, d.sprite.h, 16, 1024) },
     anchor: { x: num(m.anchor?.x, d.sprite.anchorX, 0, 1), y: num(m.anchor?.y, d.sprite.anchorY, 0, 1) },
     hitbox: {

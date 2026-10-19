@@ -1,4 +1,5 @@
 import { parseLines } from '../engine/speech';
+import type { Battery } from './power';
 import type { PointerReport, SkinReport } from './types';
 
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -33,4 +34,12 @@ export function parsePointer(raw: unknown): PointerReport | null {
   const { kind, x, y } = raw as Record<string, unknown>;
   if ((kind !== 'down' && kind !== 'up') || !finite(x) || !finite(y)) return null;
   return { kind, x, y };
+}
+
+/** The battery as an overlay reports it (`navigator.getBattery()`): a charge from 0 to 1 and whether it is charging. */
+export function parseBattery(raw: unknown): Battery | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const { level, charging } = raw as Record<string, unknown>;
+  if (!finite(level) || typeof charging !== 'boolean') return null;
+  return { level: Math.min(1, Math.max(0, level)), charging };
 }

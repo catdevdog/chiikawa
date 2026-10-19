@@ -1,5 +1,5 @@
 import { Pet } from '../engine';
-import type { PetView, Rect, SayEvent, Vec2 } from '../engine/types';
+import type { NoticeEvent, PetView, Rect, SayEvent, Vec2 } from '../engine/types';
 import { mulberry32, inEllipse } from '../engine/vec';
 import type { Area, PointerReport, Settings, SkinReport, ViewFrame } from '../shared/types';
 
@@ -46,6 +46,8 @@ export class Stage {
   private skin: SkinReport | null = null;
   private windows = new Map<StageWindow, WindowState>();
   private pressed: StageWindow | null = null;
+  /** put away for a while: nothing moves, nothing is drawn, the mouse goes through */
+  private hidden = false;
   private last = Number.NaN;
   private lastCursor: Vec2 = { x: Number.NaN, y: Number.NaN };
   private from: Vec2 | null = null;
@@ -68,6 +70,35 @@ export class Stage {
   /** Makes the pet say something for a situation, as if it had just happened (for tests and diagnostics). */
   say(event: SayEvent): void {
     this.pet?.say(event);
+  }
+
+  get isHidden(): boolean {
+    return this.hidden;
+  }
+
+  /** Puts the pet away, or brings it back where it was (with a greeting). The pet does not live on while hidden. */
+  setHidden(hidden: boolean): void {
+    if (hidden === this.hidden) return;
+    this.hidden = hidden;
+    if (hidden) this.putAway();
+    else {
+      this.resume();
+      this.pet?.say('start');
+    }
+  }
+
+  /** The user calls the pet: out of hiding if need be, and over to the cursor. */
+  call(): void {
+    if (this.hidden) {
+      this.hidden = false;
+      this.resume();
+    }
+    this.pet?.call();
+  }
+
+  /** Something happened on the computer. A pet that is put away has nothing to show for it. */
+  notice(event: NoticeEvent): void {
+    if (!this.hidden) this.pet?.notice(event);
   }
 
   /** Which windows are up. Their areas are the screens the pet may be on; the first is where it starts. */
@@ -112,7 +143,7 @@ export class Stage {
    */
   pointer(win: StageWindow, e: PointerReport): void {
     const pet = this.pet;
-    if (!pet || !this.windows.has(win)) return;
+    if (!pet || this.hidden || !this.windows.has(win)) return;
     const c = this.deps.cursor();
     if (e.kind === 'down') {
       if (pet.pressed) return;
@@ -128,7 +159,7 @@ export class Stage {
   /** Advances the pet to `now` (ms) and sends what changed to the windows. */
   tick(now: number): void {
     const pet = this.pet;
-    if (!pet) return;
+    if (!pet || this.hidden) return;
     const dt = Number.isNaN(this.last) ? 16 : now - this.last;
     this.last = now;
     const c = this.deps.cursor();
@@ -149,6 +180,26 @@ export class Stage {
   }
 
   // --- internals -----------------------------------------------------------
+
+  /** Clears every window and lets the mouse through; a pet in someone's hand is let go. */
+  private putAway(): void {
+    this.pet?.cancelPointer();
+    this.pressed = null;
+    for (const [win, st] of this.windows) {
+      if (st.hasPet) win.send(null);
+      st.hasPet = false;
+      if (!st.ignoring) {
+        st.ignoring = true;
+        win.setIgnoring(true);
+      }
+    }
+  }
+
+  /** Time stood still while the pet was away; the first step after it is an ordinary one. */
+  private resume(): void {
+    this.last = Number.NaN;
+    this.sent.state = '';
+  }
 
   private start(): void {
     const skin = this.skin;

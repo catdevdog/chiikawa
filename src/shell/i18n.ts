@@ -1,6 +1,10 @@
 import { app } from 'electron';
+import type { Lang } from '../shared/skin-name';
 
 const ko = {
+  call: '펫 부르기',
+  hide: '잠깐 숨기기',
+  show: '다시 나타나기',
   mode: '모드',
   modeAuto: '자동 (따라가다 배회)',
   modeFollow: '따라가기',
@@ -36,11 +40,16 @@ const ko = {
   updateFailed: '업데이트 확인에 실패했어요 — 다시 시도',
   updateOpenPage: '새 버전 확인 (GitHub 열기)',
   updateReadyBody: (version: string): string =>
-    `새 버전 v${version}이 준비됐어요. 트레이 메뉴의 '설치하고 다시 시작'을 누르거나, 종료할 때 자동으로 설치돼요.`,
+    `새 버전(v${version})이 준비됐어요. 트레이 메뉴의 '설치하고 다시 시작'을 누르거나, 종료할 때 자동으로 설치돼요.`,
+  whatsNew: '바뀐 점 보기',
+  whatsNewTitle: (version: string): string => `v${version} 업데이트 완료`,
   quit: '종료',
 };
 
 const en: typeof ko = {
+  call: 'Call the pet',
+  hide: 'Hide for now',
+  show: 'Show the pet again',
   mode: 'Mode',
   modeAuto: 'Auto (follow, then wander)',
   modeFollow: 'Follow the mouse',
@@ -77,7 +86,12 @@ const en: typeof ko = {
   updateOpenPage: 'Check for a new version (opens GitHub)',
   updateReadyBody: (version: string): string =>
     `Version ${version} is ready. Choose "Install and restart" in the tray menu, or it installs when you quit.`,
+  whatsNew: "See what's new",
+  whatsNewTitle: (version: string): string => `Updated to v${version}`,
   quit: 'Quit',
 };
 
-export const t = (): typeof ko => (app.getLocale().toLowerCase().startsWith('ko') ? ko : en);
+/** The language the tray speaks: Korean on a Korean system, English everywhere else. */
+export const language = (): Lang => (app.getLocale().toLowerCase().startsWith('ko') ? 'ko' : 'en');
+
+export const t = (): typeof ko => (language() === 'ko' ? ko : en);

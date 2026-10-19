@@ -59,6 +59,27 @@ describe('parseManifest', () => {
   });
 });
 
+describe('names in a manifest', () => {
+  const base = { poses: { idle: 'idle.png' } };
+
+  it('reads the name in each language the app speaks', () => {
+    expect(parseManifest({ ...base, name: 'Chiikawa', names: { ko: ' 치이카와 ', en: 'Chiikawa' } }, 'x').names).toEqual({ ko: '치이카와', en: 'Chiikawa' });
+  });
+
+  it('is empty without names, and drops what is not a name', () => {
+    expect(parseManifest(base, 'x').names).toEqual({});
+    for (const names of ['치이카와', 5, null, [], { ko: 5 }, { ko: '' }, { ko: '   ' }, { fr: 'Chiikawa' }]) {
+      expect(parseManifest({ ...base, names }, 'x').names).toEqual({});
+    }
+  });
+
+  it('cuts a name that is too long and drops control characters', () => {
+    const m = parseManifest({ ...base, names: { ko: `가${'나'.repeat(60)}`, en: 'a\nb' } }, 'x');
+    expect([...m.names!.ko!].length).toBe(40);
+    expect(m.names!.en).toBe('a b');
+  });
+});
+
 describe('lines in a manifest', () => {
   const base = { poses: { idle: 'idle.png' } };
 

@@ -1,4 +1,5 @@
 import type { Mode, Roam, Vec2 } from '../engine/types';
+import type { Battery } from '../shared/power';
 import { DEFAULT_SETTINGS, type Area, type InitInfo, type PointerReport, type Settings, type SkinInfo, type SkinReport, type ViewFrame } from '../shared/types';
 
 /**
@@ -22,6 +23,8 @@ export interface Host {
   pointer(report: PointerReport): void;
   /** Electron: the main process needs the size and the lines of the skin on screen to simulate the pet */
   reportSkin(skin: SkinReport): void;
+  /** Electron: the charge and charger of this computer, so that the pet can notice when it runs low */
+  reportBattery(battery: Battery): void;
   log(level: 'info' | 'warn' | 'error', message: string): void;
   /** harness only: the on-page controls change settings through this */
   patchSettings?(patch: Partial<Settings>): void;
@@ -40,6 +43,7 @@ export function pickHost(): Host {
     onCursor: () => {},
     pointer: (r) => api.pointer(r),
     reportSkin: (g) => api.reportSkin(g),
+    reportBattery: (b) => api.reportBattery(b),
     log: (level, message) => api.log(level, message),
   };
 }
@@ -87,6 +91,7 @@ function browserHost(): Host {
     onCursor: (cb) => addEventListener('pointermove', (e) => cb({ x: e.clientX, y: e.clientY })),
     pointer: () => {},
     reportSkin: () => {},
+    reportBattery: () => {},
     log: (level, message) => console[level](message),
     patchSettings(patch) {
       settings = { ...settings, ...patch };

@@ -83,7 +83,10 @@ jobs:
             echo "The tag $TAG does not match version $version in package.json; bump it first." >&2
             exit 1
           fi
+          # the release says what CHANGELOG.md says about this version; a version with nothing written there stops here
+          node scripts/release-notes.mjs "$version" > release/NOTES.md
+          cat release/NOTES.md
           gh release create "$TAG" \
             release/DesktopBuddy-Setup.exe release/DesktopBuddy-Setup.exe.blockmap \
             release/DesktopBuddy-Portable.zip release/latest.yml \
-            --title "$TAG" --generate-notes --target "$GITHUB_SHA"
+            --title "$TAG" --notes-file release/NOTES.md --target "$GITHUB_SHA"

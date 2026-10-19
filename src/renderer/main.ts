@@ -23,6 +23,27 @@ async function loadSkinOrDefault(id: string): Promise<Skin> {
   }
 }
 
+/** What `navigator.getBattery()` gives back (not in TypeScript's own DOM types). */
+interface BatteryManager extends EventTarget {
+  level: number;
+  charging: boolean;
+}
+
+/** Tells the main process the charge and the charger now and whenever either changes. A computer without one says nothing. */
+async function watchBattery(): Promise<void> {
+  const nav = navigator as Navigator & { getBattery?: () => Promise<BatteryManager> };
+  if (host.harness || typeof nav.getBattery !== 'function') return;
+  try {
+    const battery = await nav.getBattery();
+    const send = (): void => host.reportBattery({ level: battery.level, charging: battery.charging });
+    battery.addEventListener('levelchange', send);
+    battery.addEventListener('chargingchange', send);
+    send();
+  } catch (err) {
+    host.log('info', `no battery information: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 const reportOf = (skin: Skin): SkinReport => ({ box: { ...skin.box }, hitbox: { ...skin.hitbox }, lines: skin.lines });
 
 /**
@@ -68,6 +89,7 @@ async function start(): Promise<void> {
     lastDraw = 0;
   };
   await loadSkinNow(settings.skin);
+  void watchBattery();
 
   // test-page knob: make the pet nod off quickly
   const sleepAfter = host.harness ? Number(query.get('sleepAfter')) : 0;

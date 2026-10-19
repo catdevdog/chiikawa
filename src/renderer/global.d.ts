@@ -1,4 +1,5 @@
 import type { Vec2 } from '../engine/types';
+import type { Battery } from '../shared/power';
 import type { SkinPayload } from '../shared/skin-payload';
 import type { Area, InitInfo, PointerReport, Settings, SkinReport, ViewFrame } from '../shared/types';
 
@@ -11,6 +12,7 @@ export interface BuddyHostApi {
   onReloadSkin(cb: () => void): void;
   pointer(report: PointerReport): void;
   reportSkin(skin: SkinReport): void;
+  reportBattery(battery: Battery): void;
   log(level: 'info' | 'warn' | 'error', message: string): void;
 }
 

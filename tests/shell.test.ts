@@ -2,6 +2,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { isSkinId } from '../src/shared/ids';
 import { sanitizeSettings } from '../src/shared/sanitize';
+import { skinTitle } from '../src/shared/skin-name';
 import { sortSkins } from '../src/shared/skin-order';
 import { DEFAULT_SETTINGS } from '../src/shared/types';
 import { parsePointer, parseSkinReport } from '../src/shared/validate';
@@ -116,6 +117,33 @@ describe('what an overlay may report', () => {
     for (const bad of [null, 'down', {}, { kind: 'move', x: 1, y: 1 }, { kind: 'down', x: Infinity, y: 1 }, { kind: 'down', x: 1 }, { kind: 'up', x: '1', y: 2 }]) {
       expect(parsePointer(bad)).toBeNull();
     }
+  });
+});
+
+describe('skinTitle', () => {
+  const chiikawa = { name: 'Chiikawa', names: { ko: '치이카와' } };
+
+  it('names a skin in the language of the app when it knows that name', () => {
+    expect(skinTitle(chiikawa, 'ko', 'chiikawa')).toBe('치이카와');
+  });
+
+  it('falls back to the plain name, then to the folder', () => {
+    expect(skinTitle(chiikawa, 'en', 'chiikawa')).toBe('Chiikawa');
+    expect(skinTitle({ name: 'Mine' }, 'ko', 'mine')).toBe('Mine');
+    expect(skinTitle({}, 'ko', 'mine')).toBe('mine');
+    expect(skinTitle({ name: '   ', names: 'x' }, 'en', 'mine')).toBe('mine');
+    expect(skinTitle({ name: 7 }, 'en', 'mine')).toBe('mine');
+  });
+
+  it('puts the Korean names of the bundled skins in Korean order', () => {
+    const list = [
+      { id: 'usagi', name: '우사기', builtin: true },
+      { id: 'hachiware', name: '하치와레', builtin: true },
+      { id: 'default', name: '스프라우트', builtin: true },
+      { id: 'chiikawa', name: '치이카와', builtin: true },
+      { id: 'rakko', name: '랏코', builtin: true },
+    ];
+    expect(sortSkins(list).map((s) => s.name)).toEqual(['랏코', '스프라우트', '우사기', '치이카와', '하치와레']);
   });
 });
 

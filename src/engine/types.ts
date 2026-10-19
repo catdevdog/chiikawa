@@ -81,7 +81,15 @@ export type SayEvent =
   | 'sit'
   | 'sleep'
   | 'wake'
-  | 'cross';
+  | 'cross'
+  | 'call'
+  | 'welcome'
+  | 'plug'
+  | 'unplug'
+  | 'lowBattery';
+
+/** What happens on the computer that the pet notices: the user is back, the charger goes in or out, the battery runs low. */
+export type NoticeEvent = 'welcome' | 'plug' | 'unplug' | 'lowBattery';
 
 export const SAY_EVENTS: readonly SayEvent[] = [
   'start',
@@ -100,6 +108,11 @@ export const SAY_EVENTS: readonly SayEvent[] = [
   'sleep',
   'wake',
   'cross',
+  'call',
+  'welcome',
+  'plug',
+  'unplug',
+  'lowBattery',
 ];
 
 export interface Line {

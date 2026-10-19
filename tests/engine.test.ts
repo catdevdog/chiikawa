@@ -912,3 +912,298 @@ describe('speech', () => {
     expect(trail(loud)).toEqual(trail(quiet));
   });
 });
+
+describe('being called', () => {
+  const HERE = parseLines({ call: ['HERE'] });
+  const words = (pet: Pet): string[] => pet.view.particles.filter((p) => p.kind === 'text').map((p) => p.text!);
+  /** how far the pet is from the cursor the moment it first looks happy */
+  function arrival(pet: Pet, cursor: Vec2, ms: number): { seen: Set<PetState>; gap: number } {
+    const seen = new Set<PetState>();
+    let at = Infinity;
+    run(pet, ms, (p) => {
+      seen.add(p.view.state);
+      if (p.view.state === 'happy' && at === Infinity) at = gap(followCenter(p), cursor);
+    });
+    return { seen, gap: at };
+  }
+
+  it('comes running to the cursor, even while wandering, and is happy to be there', () => {
+    const pet = make({ mode: 'wander' });
+    pet.update(16);
+    const cursor = { x: 1150, y: 500 };
+    pet.setCursor(cursor);
+    pet.call();
+    const { seen, gap: at } = arrival(pet, cursor, 6000);
+    expect(seen.has('run')).toBe(true);
+    expect(at).toBeLessThan(110);
+  });
+
+  it('wakes a sleeping pet and sends it over', () => {
+    const pet = make({ mode: 'wander', config: { sleepAfterMs: 1000 } });
+    pet.setCursor({ x: 100, y: 100 });
+    run(pet, 20_000);
+    expect(pet.view.state).toBe('sleep');
+    pet.call();
+    pet.update(16);
+    expect(pet.view.state).toBe('run');
+  });
+
+  it('answers only when it gets there', () => {
+    const pet = make({ mode: 'wander' });
+    pet.setLines(HERE);
+    pet.update(16);
+    pet.setCursor({ x: 1150, y: 500 });
+    pet.call();
+    let firstSeenIn: PetState | null = null;
+    run(pet, 6000, (p) => {
+      if (firstSeenIn === null && words(p).includes('HERE')) firstSeenIn = p.view.state;
+    });
+    expect(firstSeenIn).toBe('happy');
+  });
+
+  it('stops beside the cursor, on the side it came from, looking at it', () => {
+    const pet = make({ mode: 'wander' });
+    pet.update(16);
+    const facingWhenHappy = (cursor: Vec2): number | null => {
+      pet.setCursor(cursor);
+      pet.call();
+      let facing: number | null = null;
+      run(pet, 6000, (p) => {
+        if (p.view.state === 'happy' && facing === null) facing = p.view.facing;
+      });
+      return facing;
+    };
+    // the pet starts in the middle: a cursor to its left is looked at over its left shoulder, and the other way round
+    expect(facingWhenHappy({ x: 100, y: 600 })).toBe(-1);
+    expect(facingWhenHappy({ x: 900, y: 600 })).toBe(1);
+  });
+
+  it('only walks along the floor in floor roam mode', () => {
+    const pet = make({ mode: 'wander', config: { roam: 'floor' } });
+    pet.update(16);
+    const cursor = { x: 1150, y: 300 };
+    pet.setCursor(cursor);
+    pet.call();
+    let reached = false;
+    run(pet, 6000, (p) => {
+      expect(p.view.y).toBe(H);
+      if (p.view.state === 'happy') reached = Math.abs(followCenter(p).x - cursor.x) < 110;
+    });
+    expect(reached).toBe(true);
+  });
+
+  it('drops in from above when the cursor is far away', () => {
+    const pet = new Pet({ world: { width: 3000, height: 700 }, rng: mulberry32(7), mode: 'wander' });
+    pet.update(16);
+    const cursor = { x: 200, y: 400 };
+    pet.setCursor(cursor);
+    pet.call();
+    pet.update(16);
+    expect(pet.view.state).toBe('fall');
+    expect(pet.view.x).toBeCloseTo(200, -1);
+    expect(pet.view.y).toBeLessThan(200);
+    const { seen, gap: at } = arrival(pet, cursor, 6000);
+    expect(seen.has('land')).toBe(true);
+    expect(at).toBeLessThan(110);
+  });
+
+  it('drops in at the cursor when it is on another screen, however close', () => {
+    const screens: Rect[] = [{ x: 0, y: 0, w: 1000, h: 600 }, { x: 1000, y: 0, w: 1000, h: 600 }];
+    const pet = new Pet({ world: { width: 1, height: 1 }, region: screens, rng: mulberry32(7), mode: 'wander' });
+    pet.update(16);
+    pet.setCursor({ x: 1100, y: 500 });
+    pet.call();
+    pet.update(16);
+    expect(pet.view.state).toBe('fall');
+    expect(pet.view.x).toBeGreaterThan(1000);
+    run(pet, 4000);
+    expect(pet.view.x).toBeGreaterThan(1000);
+  });
+
+  it('gives up on a cursor it cannot get beside instead of trying for ever', () => {
+    // the cursor is in a gap between two screens: the nearest the pet can get to it is the edge of one of them
+    const screens: Rect[] = [{ x: 0, y: 0, w: 1000, h: 600 }, { x: 1500, y: 0, w: 1000, h: 600 }];
+    const pet = new Pet({ world: { width: 1, height: 1 }, region: screens, rng: mulberry32(7), mode: 'wander' });
+    pet.setLines(HERE);
+    pet.update(16);
+    pet.setCursor({ x: 1250, y: 300 });
+    pet.call();
+    let t = 0;
+    let happy = -1;
+    let said = -1;
+    run(pet, 20_000, (p) => {
+      t += 16;
+      if (p.view.state === 'happy' && happy < 0) happy = t;
+      if (words(p).includes('HERE') && said < 0) said = t;
+    });
+    expect(happy).toBeGreaterThan(5000);
+    expect(happy).toBeLessThan(10_000);
+    expect(said).toBeGreaterThanOrEqual(happy);
+  });
+
+  it('just answers when the pet hangs off the cursor', () => {
+    const pet = make({ mode: 'attach' });
+    pet.setLines(HERE);
+    pet.setCursor({ x: 400, y: 300 });
+    run(pet, 1500);
+    pet.call();
+    pet.update(16);
+    expect(words(pet)).toContain('HERE');
+    expect(pet.view.state).toBe('held');
+  });
+
+  it('leaves a pet alone while it is being dragged', () => {
+    const pet = make({ mode: 'wander' });
+    pet.setLines(HERE);
+    pet.update(16);
+    const c = bodyCenter(pet);
+    pet.pointerMove(c);
+    pet.pointerDown(c);
+    pet.pointerMove({ x: c.x + 40, y: c.y - 40 });
+    pet.update(16);
+    expect(pet.view.state).toBe('held');
+    pet.setCursor({ x: 1100, y: 100 });
+    pet.call();
+    pet.update(16);
+    expect(pet.view.state).toBe('held');
+    pet.pointerUp({ x: c.x + 40, y: c.y - 40 });
+    const said: string[] = [];
+    run(pet, 8000, (p) => said.push(...words(p)));
+    expect(said).not.toContain('HERE');
+  });
+
+  it('stops going when it is picked up on the way', () => {
+    const pet = make({ mode: 'wander' });
+    pet.setLines(HERE);
+    pet.update(16);
+    pet.setCursor({ x: 1200, y: 600 });
+    pet.call();
+    run(pet, 600);
+    expect(pet.view.state).toBe('run');
+    const c = bodyCenter(pet);
+    pet.pointerMove(c);
+    pet.pointerDown(c);
+    pet.pointerMove({ x: c.x - 60, y: c.y - 60 });
+    pet.pointerUp({ x: c.x - 60, y: c.y - 60 });
+    const said: string[] = [];
+    run(pet, 8000, (p) => said.push(...words(p)));
+    expect(said).not.toContain('HERE');
+  });
+
+  it('keeps the pet on the screen however it is called', () => {
+    const pet = new Pet({ world: { width: 1500, height: 800 }, rng: mulberry32(11), mode: 'auto' });
+    const rnd = mulberry32(5);
+    for (let i = 0; i < 400; i++) {
+      pet.setCursor({ x: rnd() * 1700 - 100, y: rnd() * 900 - 50 });
+      if (rnd() < 0.15) pet.call();
+      run(pet, 200 + rnd() * 400);
+      const v = pet.view;
+      expect(Number.isFinite(v.x) && Number.isFinite(v.y)).toBe(true);
+      expect(v.hitbox.x).toBeGreaterThanOrEqual(-1e-6);
+      expect(v.hitbox.x + v.hitbox.w).toBeLessThanOrEqual(1500 + 1e-6);
+      expect(v.hitbox.y).toBeGreaterThanOrEqual(-1e-6);
+      expect(v.hitbox.y + v.hitbox.h).toBeLessThanOrEqual(800 + 1e-6);
+    }
+  });
+});
+
+describe('noticing the computer', () => {
+  const lines = parseLines({ welcome: ['BACK'], plug: ['PLUG'], unplug: ['UNPLUG'], lowBattery: ['LOW'] });
+  const words = (pet: Pet): string[] => pet.view.particles.filter((p) => p.kind === 'text').map((p) => p.text!);
+  const sleeper = (): Pet => {
+    const pet = make({ mode: 'wander', config: { sleepAfterMs: 1000 } });
+    pet.setLines(lines);
+    pet.setCursor({ x: 100, y: 100 });
+    run(pet, 20_000);
+    expect(pet.view.state).toBe('sleep');
+    return pet;
+  };
+
+  it('a user coming back wakes a sleeping pet, which is glad and says so', () => {
+    const pet = sleeper();
+    pet.notice('welcome');
+    pet.update(16);
+    expect(pet.view.state).toBe('happy');
+    expect(words(pet)).toContain('BACK');
+  });
+
+  it('a charger going in cheers the pet up, and coming out startles it', () => {
+    const pet = make({ mode: 'wander' });
+    pet.setLines(lines);
+    pet.update(16);
+    pet.notice('plug');
+    pet.update(16);
+    expect(pet.view.state).toBe('happy');
+    expect(words(pet)).toContain('PLUG');
+    run(pet, 3000);
+    pet.notice('unplug');
+    pet.update(16);
+    expect(pet.view.state).toBe('surprised');
+    expect(words(pet)).toContain('UNPLUG');
+  });
+
+  it('a low battery startles it too', () => {
+    const pet = make({ mode: 'wander' });
+    pet.setLines(lines);
+    pet.update(16);
+    pet.notice('lowBattery');
+    pet.update(16);
+    expect(pet.view.state).toBe('surprised');
+    expect(words(pet)).toContain('LOW');
+  });
+
+  it('a pet in someone\'s hand only says it', () => {
+    const pet = make({ mode: 'wander' });
+    pet.setLines(lines);
+    pet.update(16);
+    const c = bodyCenter(pet);
+    pet.pointerMove(c);
+    pet.pointerDown(c);
+    pet.pointerMove({ x: c.x + 40, y: c.y - 40 });
+    pet.update(16);
+    pet.notice('unplug');
+    pet.update(16);
+    expect(pet.view.state).toBe('held');
+    expect(words(pet)).toContain('UNPLUG');
+  });
+
+  it('still reacts when the skin has nothing to say', () => {
+    const pet = make({ mode: 'wander' });
+    pet.update(16);
+    pet.notice('welcome');
+    pet.update(16);
+    expect(pet.view.state).toBe('happy');
+    expect(words(pet)).toHaveLength(0);
+  });
+
+  it('is silent when speech is off, and answers when it is set to reactions', () => {
+    const quiet = make({ mode: 'wander' });
+    quiet.setLines(lines);
+    quiet.setSpeech('off');
+    quiet.update(16);
+    quiet.notice('welcome');
+    quiet.update(16);
+    expect(words(quiet)).toHaveLength(0);
+
+    const reactive = make({ mode: 'wander' });
+    reactive.setLines(lines);
+    reactive.setSpeech('reactions');
+    reactive.update(16);
+    reactive.notice('welcome');
+    reactive.update(16);
+    expect(words(reactive)).toContain('BACK');
+  });
+
+  it('does not say the same thing again when the news comes twice in a row', () => {
+    const pet = make({ mode: 'wander' });
+    pet.setLines(lines);
+    pet.update(16);
+    pet.notice('welcome');
+    run(pet, 3000);
+    expect(words(pet)).toHaveLength(0);
+    pet.notice('welcome');
+    pet.update(16);
+    expect(words(pet)).toHaveLength(0);
+    expect(pet.view.state).toBe('happy');
+  });
+});

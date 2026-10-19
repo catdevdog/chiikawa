@@ -85,6 +85,7 @@ export const IPC = {
   view: 'buddy:view',
   pointer: 'buddy:pointer',
   skin: 'buddy:skin',
+  battery: 'buddy:battery',
   log: 'buddy:log',
   reloadSkin: 'buddy:reload-skin',
   makerExisting: 'buddy:maker-existing',

@@ -387,3 +387,136 @@ describe('the screens change', () => {
     expect(r.w).toBeCloseTo(256 * 0.6);
   });
 });
+
+describe('putting the pet away', () => {
+  const WORDS: SkinReport = {
+    ...GEOMETRY,
+    lines: {
+      start: [{ text: '미야아아!', style: 'float' }],
+      call: [{ text: '야하!', style: 'float' }],
+      welcome: [{ text: '어서 와~', style: 'hold' }],
+    },
+  };
+  const said = (win: FakeWindow): string[] => (win.last?.view.particles ?? []).filter((p) => p.kind === 'text').map((p) => p.text!);
+
+  it('clears the windows once and then sends nothing at all', () => {
+    const t = setup([LEFT, RIGHT]);
+    t.run(300);
+    const before = t.wins.map((w) => w.frames.length);
+    t.stage.setHidden(true);
+    expect(t.stage.isHidden).toBe(true);
+    expect(t.wins[0]!.last).toBeNull();
+    t.run(2000);
+    expect(t.wins[0]!.frames.length).toBe(before[0]! + 1);
+    expect(t.wins[1]!.frames.length).toBe(before[1]!);
+  });
+
+  it('stands still and lets the mouse through while it is away', () => {
+    const t = setup([LEFT]);
+    t.run(300);
+    t.env.cursor = t.body();
+    t.run(32);
+    expect(t.wins[0]!.ignoring).toBe(false);
+    const at = { ...t.stage.view! };
+    t.stage.setHidden(true);
+    expect(t.wins[0]!.ignoring).toBe(true);
+    t.run(4000);
+    expect(t.wins[0]!.ignoring).toBe(true);
+    expect(t.stage.view!.x).toBe(at.x);
+    expect(t.stage.view!.y).toBe(at.y);
+    // a click where the pet was does nothing
+    t.stage.pointer(t.wins[0]!, { kind: 'down', x: at.x, y: at.y - 40 });
+    expect(t.wins[0]!.ignoring).toBe(true);
+  });
+
+  it('lets go of a pet that is being held', () => {
+    const t = setup([LEFT]);
+    t.run(300);
+    const grab = t.body();
+    t.press(t.wins[0]!, grab);
+    t.drag(grab, { x: grab.x + 40, y: grab.y - 120 });
+    expect(t.stage.view!.state).toBe('held');
+    t.stage.setHidden(true);
+    expect(t.wins[0]!.ignoring).toBe(true);
+    // the button comes up while the pet is away; there is nothing left for it to let go of
+    t.release(t.wins[0]!, { x: grab.x + 40, y: grab.y - 120 });
+    t.stage.setHidden(false);
+    t.run(3000);
+    expect(t.stage.view!.state).not.toBe('held');
+    expect(t.stage.view!.y).toBe(LEFT.height);
+  });
+
+  it('comes back where it was, draws again, and greets', () => {
+    const t = setup([LEFT]);
+    t.stage.setSkin(WORDS);
+    t.run(3000);
+    const at = { x: t.stage.view!.x, y: t.stage.view!.y };
+    t.stage.setHidden(true);
+    t.run(5000);
+    const frames = t.wins[0]!.frames.length;
+    t.stage.setHidden(false);
+    expect(t.stage.isHidden).toBe(false);
+    t.run(32);
+    expect(t.wins[0]!.frames.length).toBeGreaterThan(frames);
+    expect(t.wins[0]!.last).not.toBeNull();
+    expect(Math.abs(t.stage.view!.x - at.x)).toBeLessThan(5);
+    expect(said(t.wins[0]!)).toContain('미야아아!');
+  });
+
+  it('hiding twice, or showing a pet that is not hidden, changes nothing', () => {
+    const t = setup([LEFT]);
+    t.run(300);
+    t.stage.setHidden(false);
+    t.stage.setHidden(true);
+    const frames = t.wins[0]!.frames.length;
+    t.stage.setHidden(true);
+    expect(t.wins[0]!.frames.length).toBe(frames);
+  });
+
+  it('is still hidden after the windows change', () => {
+    const t = setup([LEFT]);
+    t.run(300);
+    t.stage.setHidden(true);
+    const extra = new FakeWindow(RIGHT);
+    t.stage.setWindows([...t.wins, extra]);
+    t.run(500);
+    expect(extra.frames).toEqual([]);
+    expect(t.wins[0]!.last).toBeNull();
+  });
+
+  it('being called brings it out of hiding and over to the cursor', () => {
+    const t = setup([LEFT]);
+    t.stage.setSkin(WORDS);
+    t.run(3000);
+    t.stage.setHidden(true);
+    t.run(1000);
+    t.env.cursor = { x: 1000, y: 500 };
+    t.stage.call();
+    expect(t.stage.isHidden).toBe(false);
+    const seen = new Set<string>();
+    for (let i = 0; i < 400; i++) {
+      t.run(16);
+      seen.add(t.stage.view!.state);
+      for (const w of said(t.wins[0]!)) seen.add(w);
+    }
+    expect(seen.has('run')).toBe(true);
+    expect(seen.has('야하!')).toBe(true);
+    // no separate greeting on top of the answer
+    expect(seen.has('미야아아!')).toBe(false);
+  });
+
+  it('news from the computer is lost on a pet that is away', () => {
+    const t = setup([LEFT]);
+    t.stage.setSkin(WORDS);
+    t.run(3000);
+    t.stage.setHidden(true);
+    t.stage.notice('welcome');
+    t.stage.setHidden(false);
+    t.run(200);
+    expect(said(t.wins[0]!)).not.toContain('어서 와~');
+    t.run(5000);
+    t.stage.notice('welcome');
+    t.run(32);
+    expect(said(t.wins[0]!)).toContain('어서 와~');
+  });
+});

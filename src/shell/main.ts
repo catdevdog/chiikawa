@@ -4,6 +4,7 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  powerMonitor,
   protocol,
   screen,
   session,
@@ -13,12 +14,14 @@ import {
   type IpcMainInvokeEvent,
   type MenuItemConstructorOptions,
 } from 'electron';
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { Mode, Roam, SayEvent, SpeechLevel } from '../engine/types';
+import type { Mode, NoticeEvent, Roam, SayEvent, SpeechLevel } from '../engine/types';
 import { chooseDisplays, MONITOR_ALL, MONITOR_PRIMARY, parseFakeDisplays, type DisplayInfo } from '../shared/displays';
+import { BatteryWatch } from '../shared/power';
 import { DEFAULT_SETTINGS, IPC, type InitInfo, type Settings } from '../shared/types';
-import { parsePointer, parseSkinReport } from '../shared/validate';
+import { parseBattery, parsePointer, parseSkinReport } from '../shared/validate';
 import { readDisplays, setFakeDisplays } from './displays';
 import { t } from './i18n';
 import { log } from './log';
@@ -29,11 +32,19 @@ import { loadSettings, saveSettings } from './settings';
 import { ensureUserSkinsDir, listSkins, MIME, resolveSkinFile, userSkinsDir } from './skins';
 import { Stage } from './stage';
 import { createUpdates, type Updates } from './updater';
+import { announceChanges, releasePage, type Announced } from './whats-new';
 
 const APP_ID = 'io.github.catdevdog.desktop-buddy';
 const ORIGIN = 'buddy://app';
-const QUIT_SHORTCUT = 'CommandOrControl+Alt+Shift+B';
-const QUIT_LABEL = process.platform === 'darwin' ? 'Cmd+Alt+Shift+B' : 'Ctrl+Alt+Shift+B';
+/** The keys that work while any other program has the focus: Ctrl+Alt+Shift and a letter. */
+const shortcut = (key: string): string => `CommandOrControl+Alt+Shift+${key}`;
+const shortcutLabel = (key: string): string => `${process.platform === 'darwin' ? 'Cmd' : 'Ctrl'}+Alt+Shift+${key}`;
+const QUIT_KEY = 'B';
+const HIDE_KEY = 'H';
+const CALL_KEY = 'C';
+/** a wake from sleep brings the screens back a moment later, and the lock screen a moment after that */
+const RESUME_GREETING_MS = 3000;
+const UNLOCK_GREETING_MS = 800;
 const MAKER_FLAG = '--maker';
 /** the pet is simulated this often */
 const TICK_MS = 16;
@@ -56,6 +67,10 @@ let settings: Settings = { ...DEFAULT_SETTINGS };
 const overlays = new Map<number, Overlay>();
 let stage: Stage;
 let lastSkin = '';
+/** every overlay reports the battery; this keeps one warning for each time it runs low */
+const batteryWatch = new BatteryWatch();
+/** the screen is locked, so nobody is there to be greeted */
+let screenLocked = false;
 /** keeps the installed app up to date; null until the app is ready */
 let updates: Updates | null = null;
 /** the tray menu as last built, for the end-to-end tests to read */
@@ -184,10 +199,54 @@ function registerIpc(): void {
     lastSkin = key;
     stage.setSkin(skin);
   });
+  ipcMain.on(IPC.battery, (e, raw: unknown) => {
+    if (overlayOf(e)) onBattery(raw);
+  });
   ipcMain.on(IPC.log, (e, level: unknown, message: unknown) => {
     if (!overlayOf(e)) return;
     log(level === 'warn' || level === 'error' ? level : 'info', `[renderer] ${String(message).slice(0, 2000)}`);
   });
+}
+
+// --- hiding, calling and the computer's news ---------------------------------------------------
+
+function setHidden(hidden: boolean): void {
+  stage.setHidden(hidden);
+  void rebuildMenu();
+}
+
+function toggleHidden(): void {
+  setHidden(!stage.isHidden);
+}
+
+function callPet(): void {
+  stage.call();
+  // a call also brings back a pet that was hidden
+  void rebuildMenu();
+}
+
+function onBattery(raw: unknown): void {
+  const battery = parseBattery(raw);
+  if (battery && batteryWatch.report(battery)) stage.notice('lowBattery');
+}
+
+/** The pet notices the user coming back (unlock, wake from sleep) and the charger going in or out. */
+function watchPower(): void {
+  powerMonitor.on('lock-screen', () => {
+    screenLocked = true;
+  });
+  powerMonitor.on('unlock-screen', () => {
+    screenLocked = false;
+    setTimeout(() => stage.notice('welcome'), UNLOCK_GREETING_MS);
+  });
+  // with a lock screen the unlock does the greeting; without one nothing else tells that the user is back
+  powerMonitor.on('resume', () => {
+    setTimeout(() => {
+      if (!screenLocked) stage.notice('welcome');
+    }, RESUME_GREETING_MS);
+  });
+  powerMonitor.on('on-ac', () => stage.notice('plug'));
+  powerMonitor.on('on-battery', () => stage.notice('unplug'));
 }
 
 // --- settings and tray -------------------------------------------------------------------------
@@ -249,6 +308,9 @@ async function rebuildMenu(): Promise<void> {
       : [];
   const updateItem = updates?.menuItem() ?? null;
   lastMenu = Menu.buildFromTemplate([
+    { label: `${s.call} (${shortcutLabel(CALL_KEY)})`, click: () => callPet() },
+    { label: `${stage.isHidden ? s.show : s.hide} (${shortcutLabel(HIDE_KEY)})`, click: () => toggleHidden() },
+    { type: 'separator' },
     {
       label: s.mode,
       submenu: [
@@ -300,8 +362,10 @@ async function rebuildMenu(): Promise<void> {
       ? [{ label: s.updateAuto, type: 'checkbox', checked: settings.autoUpdate, click: (i) => update({ autoUpdate: i.checked }) } as MenuItemConstructorOptions]
       : []),
     { type: 'separator' },
-    ...(updateItem ? [updateItem, { type: 'separator' } as MenuItemConstructorOptions] : []),
-    { label: `${s.quit} (${QUIT_LABEL})`, click: () => app.quit() },
+    ...(updateItem ? [updateItem] : []),
+    { label: s.whatsNew, click: () => void shell.openExternal(releasePage(app.getVersion())) },
+    { type: 'separator' },
+    { label: `${s.quit} (${shortcutLabel(QUIT_KEY)})`, click: () => app.quit() },
   ]);
   tray.setContextMenu(lastMenu);
 }
@@ -345,6 +409,13 @@ function exposeTestHooks(): void {
     settings: () => settings,
     update: (patch: Partial<Settings>) => update(patch),
     say: (event: SayEvent) => stage.say(event),
+    /** hiding and calling, as the tray and the shortcuts do it */
+    hide: (hidden: boolean) => setHidden(hidden),
+    hidden: () => stage.isHidden,
+    call: () => callPet(),
+    /** what the computer tells the pet: a notice, or a battery report as an overlay sends it */
+    notice: (event: NoticeEvent) => stage.notice(event),
+    battery: (raw: unknown) => onBattery(raw),
     /** the update machinery: state, mode, and a local feed to look at in place of GitHub */
     updates: {
       mode: () => updates?.mode ?? null,
@@ -352,6 +423,8 @@ function exposeTestHooks(): void {
       useFeed: (url: string) => updates?.useTestFeed(url),
       checkNow: () => updates?.checkNow(),
     },
+    /** the notice of what an update changed, with its text captured instead of shown */
+    whatsNew: (wasReturning: boolean): Announced | null => announceChanges(wasReturning, () => {}),
     /** the tray menu as it is now: label, type, checked, enabled, submenu */
     menu: () => describeMenu(lastMenu),
     view: () => (stage.view ? { ...stage.view, particles: [...stage.view.particles] } : null),
@@ -372,6 +445,8 @@ function exposeTestHooks(): void {
 async function boot(): Promise<void> {
   app.setAppUserModelId(APP_ID);
   session.defaultSession.setPermissionRequestHandler((_wc, _permission, cb) => cb(false));
+  // an app that ran here before has made its skins folder; a first start has not (read before it is made)
+  const returning = existsSync(userSkinsDir());
   ensureUserSkinsDir();
   settings = loadSettings();
   stage = new Stage({ cursor: () => screen.getCursorScreenPoint(), covered: makerCovers }, settings);
@@ -395,12 +470,21 @@ async function boot(): Promise<void> {
   updates = createUpdates(() => void rebuildMenu());
   updates.setBackground(settings.autoUpdate);
   createTray();
+  // a development run has no update to tell about; the end-to-end tests ask for it themselves
+  if (app.isPackaged) announceChanges(returning);
   startLoop();
   screen.on('display-added', () => syncDisplaysSoon());
   screen.on('display-removed', () => syncDisplaysSoon());
   screen.on('display-metrics-changed', () => syncDisplaysSoon());
   exposeTestHooks();
-  if (!globalShortcut.register(QUIT_SHORTCUT, () => app.quit())) log('warn', `could not register ${QUIT_SHORTCUT}`);
+  watchPower();
+  for (const [key, action] of [
+    [QUIT_KEY, () => app.quit()],
+    [HIDE_KEY, toggleHidden],
+    [CALL_KEY, callPet],
+  ] as const) {
+    if (!globalShortcut.register(shortcut(key), action)) log('warn', `could not register ${shortcut(key)}`);
+  }
   log('info', `started v${app.getVersion()} (electron ${process.versions.electron}, ${process.platform}, screens ${describeAreas(overlays.values())})`);
   if (process.argv.includes(MAKER_FLAG)) openMaker();
 }
