@@ -1,18 +1,27 @@
 import type { Mode, Roam, Vec2 } from '../engine/types';
-import { DEFAULT_SETTINGS, type HitboxReport, type InitInfo, type Settings, type SkinInfo } from '../shared/types';
+import { DEFAULT_SETTINGS, type Area, type InitInfo, type PointerReport, type Settings, type SkinGeometry, type SkinInfo, type ViewFrame } from '../shared/types';
 
-/** Everything the renderer needs from its surroundings: Electron's main process, or a plain browser tab. */
+/**
+ * Everything the renderer needs from its surroundings. In Electron the pet is simulated by the main process and
+ * this page only draws it; in a plain browser tab (the test page) the page runs the pet itself.
+ */
 export interface Host {
   /** true in the browser test page, where the pet lives inside a normal page */
   readonly harness: boolean;
   init(): Promise<InitInfo>;
-  onCursor(cb: (p: Vec2) => void): void;
   onSettings(cb: (s: Settings) => void): void;
-  onWorld(cb: (w: { width: number; height: number }) => void): void;
+  /** this window moved or changed size on the screen (Electron) */
+  onArea(cb: (a: Area) => void): void;
   /** the files of the skin in use were rewritten (the skin maker saved over it) */
   onReloadSkin(cb: () => void): void;
-  reportHitbox(report: HitboxReport): void;
-  setDragging(on: boolean): void;
+  /** Electron: the pet as simulated by the main process, or null when it is not in this window */
+  onView(cb: (frame: ViewFrame | null) => void): void;
+  /** harness: where the browser's pointer is */
+  onCursor(cb: (p: Vec2) => void): void;
+  /** Electron: a mouse button went down or up on the pet */
+  pointer(report: PointerReport): void;
+  /** Electron: the main process needs the size of the skin on screen to simulate the pet */
+  reportSkin(geometry: SkinGeometry): void;
   log(level: 'info' | 'warn' | 'error', message: string): void;
   /** harness only: the on-page controls change settings through this */
   patchSettings?(patch: Partial<Settings>): void;
@@ -24,12 +33,13 @@ export function pickHost(): Host {
   return {
     harness: false,
     init: () => api.init(),
-    onCursor: (cb) => api.onCursor(cb),
     onSettings: (cb) => api.onSettings(cb),
-    onWorld: (cb) => api.onWorld(cb),
+    onArea: (cb) => api.onArea(cb),
     onReloadSkin: (cb) => api.onReloadSkin(cb),
-    reportHitbox: (r) => api.reportHitbox(r),
-    setDragging: (on) => api.setDragging(on),
+    onView: (cb) => api.onView(cb),
+    onCursor: () => {},
+    pointer: (r) => api.pointer(r),
+    reportSkin: (g) => api.reportSkin(g),
     log: (level, message) => api.log(level, message),
   };
 }
@@ -63,19 +73,20 @@ function browserHost(): Host {
         .then((r) => r.json())
         .catch(() => [{ id: 'default', name: 'default', builtin: true }]);
       return {
-        world: { width: innerWidth, height: innerHeight },
+        area: { x: 0, y: 0, width: innerWidth, height: innerHeight },
         settings,
         skins,
         platform: 'web',
         version: 'harness',
       };
     },
-    onCursor: (cb) => addEventListener('pointermove', (e) => cb({ x: e.clientX, y: e.clientY })),
     onSettings: (cb) => void listeners.push(cb),
-    onWorld: (cb) => addEventListener('resize', () => cb({ width: innerWidth, height: innerHeight })),
+    onArea: () => {},
     onReloadSkin: () => {},
-    reportHitbox: () => {},
-    setDragging: () => {},
+    onView: () => {},
+    onCursor: (cb) => addEventListener('pointermove', (e) => cb({ x: e.clientX, y: e.clientY })),
+    pointer: () => {},
+    reportSkin: () => {},
     log: (level, message) => console[level](message),
     patchSettings(patch) {
       settings = { ...settings, ...patch };

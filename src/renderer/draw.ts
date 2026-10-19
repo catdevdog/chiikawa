@@ -6,18 +6,24 @@ export interface DrawOptions {
   debug?: boolean;
 }
 
-export function drawScene(
-  ctx: CanvasRenderingContext2D,
-  v: PetView,
-  skin: Skin,
-  world: { width: number; height: number },
-  opts: DrawOptions = {},
-): void {
-  ctx.clearRect(0, 0, world.width, world.height);
+/** The part of the shared screen space this canvas shows: where its corner is, and how big it is. */
+export interface Viewport {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** Draws the pet, whose position is in the shared screen space, into a canvas that shows only `view` of it. */
+export function drawScene(ctx: CanvasRenderingContext2D, v: PetView, skin: Skin, view: Viewport, opts: DrawOptions = {}): void {
+  ctx.clearRect(0, 0, view.width, view.height);
+  ctx.save();
+  ctx.translate(-view.x, -view.y);
   drawShadow(ctx, v, skin);
   drawPet(ctx, v, skin);
   drawParticles(ctx, v.particles);
   if (opts.debug) drawDebug(ctx, v);
+  ctx.restore();
 }
 
 function drawShadow(ctx: CanvasRenderingContext2D, v: PetView, skin: Skin): void {

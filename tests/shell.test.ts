@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { isSkinId } from '../src/shared/ids';
 import { sanitizeSettings } from '../src/shared/sanitize';
 import { DEFAULT_SETTINGS } from '../src/shared/types';
+import { parseGeometry, parsePointer } from '../src/shared/validate';
 import { safeJoin } from '../src/shell/safe-path';
 
 describe('safeJoin', () => {
@@ -46,8 +47,46 @@ describe('sanitizeSettings', () => {
   });
 
   it('keeps valid values and clamps the scale', () => {
-    const s = sanitizeSettings({ mode: 'attach', roam: 'floor', skin: 'my-skin', scale: 99, clickThrough: true, autoStart: true });
-    expect(s).toEqual({ mode: 'attach', roam: 'floor', skin: 'my-skin', scale: 4, clickThrough: true, autoStart: true });
+    const s = sanitizeSettings({ mode: 'attach', roam: 'floor', skin: 'my-skin', scale: 99, clickThrough: true, autoStart: true, monitor: '2528732444' });
+    expect(s).toEqual({ mode: 'attach', roam: 'floor', skin: 'my-skin', scale: 4, clickThrough: true, autoStart: true, monitor: '2528732444' });
     expect(sanitizeSettings({ scale: 0.01 }).scale).toBe(0.25);
+  });
+
+  it('accepts a monitor choice of all, primary or a numeric id and nothing else', () => {
+    for (const monitor of ['all', 'primary', '1', '2528732444']) expect(sanitizeSettings({ monitor }).monitor).toBe(monitor);
+    for (const monitor of ['', 'second', '-1', '1.5', '12345678901234567', 7, null, ['all']]) {
+      expect(sanitizeSettings({ monitor }).monitor).toBe(DEFAULT_SETTINGS.monitor);
+    }
+  });
+});
+
+describe('what an overlay may report', () => {
+  const geometry = { box: { w: 128, h: 140, anchorX: 0.5, anchorY: 0.94 }, hitbox: { x: 0.18, y: 0.22, w: 0.64, h: 0.72 } };
+
+  it('accepts a skin geometry and keeps its numbers', () => {
+    expect(parseGeometry(geometry)).toEqual(geometry);
+  });
+
+  it('pulls numbers that are out of range back into it', () => {
+    const g = parseGeometry({ box: { w: 99999, h: 1, anchorX: -3, anchorY: 4 }, hitbox: { x: 2, y: -1, w: 0, h: 9 } })!;
+    expect(g.box).toEqual({ w: 1024, h: 16, anchorX: 0, anchorY: 1 });
+    expect(g.hitbox).toEqual({ x: 1, y: 0, w: 0.05, h: 1 });
+  });
+
+  it('refuses anything that is not numbers', () => {
+    for (const bad of [null, 5, 'x', {}, { box: {}, hitbox: {} }, { ...geometry, box: { ...geometry.box, w: NaN } }, { ...geometry, hitbox: { ...geometry.hitbox, x: '0' } }, { box: geometry.box }]) {
+      expect(parseGeometry(bad)).toBeNull();
+    }
+  });
+
+  it('accepts a button going down or up at a finite point', () => {
+    expect(parsePointer({ kind: 'down', x: 10.5, y: -3 })).toEqual({ kind: 'down', x: 10.5, y: -3 });
+    expect(parsePointer({ kind: 'up', x: 0, y: 0, extra: 1 })).toEqual({ kind: 'up', x: 0, y: 0 });
+  });
+
+  it('refuses any other pointer message', () => {
+    for (const bad of [null, 'down', {}, { kind: 'move', x: 1, y: 1 }, { kind: 'down', x: Infinity, y: 1 }, { kind: 'down', x: 1 }, { kind: 'up', x: '1', y: 2 }]) {
+      expect(parsePointer(bad)).toBeNull();
+    }
   });
 });

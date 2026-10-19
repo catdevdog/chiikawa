@@ -1,16 +1,16 @@
 import type { Vec2 } from '../engine/types';
 import type { SkinPayload } from '../shared/skin-payload';
-import type { HitboxReport, InitInfo, Settings } from '../shared/types';
+import type { Area, InitInfo, PointerReport, Settings, SkinGeometry, ViewFrame } from '../shared/types';
 
 /** Surface exposed by the Electron preload script. Absent when running in a plain browser. */
 export interface BuddyHostApi {
   init(): Promise<InitInfo>;
-  onCursor(cb: (p: Vec2) => void): void;
   onSettings(cb: (s: Settings) => void): void;
-  onWorld(cb: (w: { width: number; height: number }) => void): void;
+  onArea(cb: (a: Area) => void): void;
+  onView(cb: (frame: ViewFrame | null) => void): void;
   onReloadSkin(cb: () => void): void;
-  reportHitbox(report: HitboxReport): void;
-  setDragging(on: boolean): void;
+  pointer(report: PointerReport): void;
+  reportSkin(geometry: SkinGeometry): void;
   log(level: 'info' | 'warn' | 'error', message: string): void;
 }
 

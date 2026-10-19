@@ -655,7 +655,7 @@ const loop = (now: number): void => {
   pet.update(now - last);
   last = now;
   sctx.clearRect(0, 0, STAGE.width, STAGE.height);
-  if (previewSkin) drawScene(sctx, pet.view, previewSkin, STAGE);
+  if (previewSkin) drawScene(sctx, pet.view, previewSkin, { x: 0, y: 0, ...STAGE });
 };
 requestAnimationFrame(loop);
 

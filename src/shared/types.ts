@@ -1,4 +1,4 @@
-import type { Mode, Rect, Roam } from '../engine/types';
+import type { Mode, PetView, Rect, Roam } from '../engine/types';
 
 export interface Settings {
   mode: Mode;
@@ -8,6 +8,8 @@ export interface Settings {
   /** keep the pet click-through at all times */
   clickThrough: boolean;
   autoStart: boolean;
+  /** where the pet lives: "all" monitors, the "primary" one, or the id of one monitor */
+  monitor: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -17,6 +19,7 @@ export const DEFAULT_SETTINGS: Settings = {
   skin: 'usagi',
   clickThrough: false,
   autoStart: false,
+  monitor: 'all',
 };
 
 export interface SkinInfo {
@@ -25,28 +28,54 @@ export interface SkinInfo {
   builtin: boolean;
 }
 
+/** A rectangle in the coordinates all monitors share (device-independent pixels, the primary monitor's corner is 0,0). */
+export interface Area {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface InitInfo {
-  /** overlay size in px (the display work area) */
-  world: { width: number; height: number };
+  /** where this overlay window sits in the shared coordinates (the work area of its monitor) */
+  area: Area;
   settings: Settings;
   skins: SkinInfo[];
   platform: string;
   version: string;
 }
 
-/** Where the pet is and whether it should capture the mouse; the main process decides click-through from it. */
-export interface HitboxReport {
-  rect: Rect;
-  interactive: boolean;
+/**
+ * The pet as the main process simulates it, for an overlay to draw. Everything is in the shared coordinates;
+ * the overlay subtracts its own origin. The velocity lets it draw smoothly between two frames.
+ */
+export interface ViewFrame {
+  view: PetView;
+  /** px per second */
+  vx: number;
+  vy: number;
+}
+
+/** A mouse button going down or up in an overlay, in that overlay's own coordinates. */
+export interface PointerReport {
+  kind: 'down' | 'up';
+  x: number;
+  y: number;
+}
+
+/** What the main process needs to know about the skin on screen to simulate the pet (as fractions where noted). */
+export interface SkinGeometry {
+  box: { w: number; h: number; anchorX: number; anchorY: number };
+  hitbox: Rect;
 }
 
 export const IPC = {
   init: 'buddy:init',
-  cursor: 'buddy:cursor',
   settings: 'buddy:settings',
-  world: 'buddy:world',
-  hitbox: 'buddy:hitbox',
-  dragging: 'buddy:dragging',
+  area: 'buddy:area',
+  view: 'buddy:view',
+  pointer: 'buddy:pointer',
+  skinGeometry: 'buddy:skin-geometry',
   log: 'buddy:log',
   reloadSkin: 'buddy:reload-skin',
   makerExisting: 'buddy:maker-existing',

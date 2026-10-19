@@ -1,6 +1,5 @@
 import {
   app,
-  BrowserWindow,
   globalShortcut,
   ipcMain,
   Menu,
@@ -17,20 +16,28 @@ import {
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Mode, Roam } from '../engine/types';
-import { inEllipse } from '../engine/vec';
-import { DEFAULT_SETTINGS, IPC, type HitboxReport, type InitInfo, type Settings } from '../shared/types';
+import { chooseDisplays, MONITOR_ALL, MONITOR_PRIMARY, parseFakeDisplays, type DisplayInfo } from '../shared/displays';
+import { DEFAULT_SETTINGS, IPC, type InitInfo, type Settings } from '../shared/types';
+import { parseGeometry, parsePointer } from '../shared/validate';
+import { readDisplays, setFakeDisplays } from './displays';
 import { t } from './i18n';
 import { log } from './log';
 import { makerCovers, openMaker, registerMakerIpc } from './maker';
-import { loadSettings, saveSettings } from './settings';
+import { Overlay } from './overlay';
 import { safeJoin } from './safe-path';
+import { loadSettings, saveSettings } from './settings';
 import { ensureUserSkinsDir, listSkins, MIME, resolveSkinFile, userSkinsDir } from './skins';
+import { Stage } from './stage';
 
 const APP_ID = 'io.github.catdevdog.desktop-buddy';
 const ORIGIN = 'buddy://app';
 const QUIT_SHORTCUT = 'CommandOrControl+Alt+Shift+B';
 const QUIT_LABEL = process.platform === 'darwin' ? 'Cmd+Alt+Shift+B' : 'Ctrl+Alt+Shift+B';
 const MAKER_FLAG = '--maker';
+/** the pet is simulated this often */
+const TICK_MS = 16;
+/** Windows sends several display events for one change; act once they have settled */
+const DISPLAY_SETTLE_MS = 150;
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -42,29 +49,18 @@ protocol.registerSchemesAsPrivileged([
 // Windows may stop painting a window it believes is covered; the overlay has to keep animating.
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
 
-let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let settings: Settings = { ...DEFAULT_SETTINGS };
-let area = { x: 0, y: 0, width: 0, height: 0 };
-/** latest pet hitbox from the renderer; click-through is decided from it */
-let report: HitboxReport | null = null;
-let dragging = false;
-let ignoring = true;
-/** BUDDY_DEBUG=1 logs every click-through switch to buddy.log */
-const DEBUG = !!process.env.BUDDY_DEBUG;
-let seenHitbox = false;
+/** one overlay per monitor the pet lives on, by display id */
+const overlays = new Map<number, Overlay>();
+let stage: Stage;
+let lastGeometry = '';
 
-const trusted = (e: IpcMainEvent | IpcMainInvokeEvent): boolean =>
-  !!e.senderFrame && e.senderFrame.url.startsWith(`${ORIGIN}/`);
-
-function isHitbox(r: unknown): r is HitboxReport {
-  if (!r || typeof r !== 'object') return false;
-  const { rect, interactive } = r as Record<string, any>;
-  return (
-    typeof interactive === 'boolean' &&
-    !!rect &&
-    [rect.x, rect.y, rect.w, rect.h].every((n: unknown) => typeof n === 'number' && Number.isFinite(n))
-  );
+/** The overlay window an IPC message came from; anything else (the skin maker, a stray frame) is refused. */
+function overlayOf(e: IpcMainEvent | IpcMainInvokeEvent): Overlay | undefined {
+  if (!e.senderFrame?.url.startsWith(`${ORIGIN}/`)) return undefined;
+  for (const o of overlays.values()) if (o.alive && o.win.webContents === e.sender) return o;
+  return undefined;
 }
 
 // --- app:// protocol: the UI from dist/renderer, skins from the user and bundled folders ----------
@@ -92,110 +88,99 @@ function registerProtocol(): void {
   });
 }
 
-// --- overlay window --------------------------------------------------------------------------
+// --- monitors and overlay windows ---------------------------------------------------------------
 
-function createOverlay(): void {
-  area = screen.getPrimaryDisplay().workArea;
-  win = new BrowserWindow({
-    ...area,
-    transparent: true,
-    frame: false,
-    resizable: false,
-    movable: false,
-    minimizable: false,
-    maximizable: false,
-    fullscreenable: false,
-    focusable: false,
-    skipTaskbar: true,
-    hasShadow: false,
-    alwaysOnTop: true,
-    show: false,
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.cjs'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      backgroundThrottling: false,
-      spellcheck: false,
-      devTools: !app.isPackaged,
-    },
-  });
-  win.setAlwaysOnTop(true, 'floating');
-  win.setIgnoreMouseEvents(true, { forward: true });
-
-  const wc = win.webContents;
-  wc.setWindowOpenHandler(() => ({ action: 'deny' }));
-  wc.on('will-navigate', (e, url) => {
-    if (!url.startsWith(`${ORIGIN}/`)) e.preventDefault();
-  });
-  wc.on('render-process-gone', (_e, d) => log('error', `renderer gone: ${d.reason} (exit ${d.exitCode})`));
-  wc.on('did-fail-load', (_e, code, desc, url) => log('error', `load failed: ${code} ${desc} ${url}`));
-  win.once('ready-to-show', () => win?.showInactive());
-  win.on('closed', () => {
-    win = null;
-  });
-  void win.loadURL(`${ORIGIN}/index.html`);
-}
-
-function refreshArea(): void {
-  const wa = screen.getPrimaryDisplay().workArea;
-  if (wa.x === area.x && wa.y === area.y && wa.width === area.width && wa.height === area.height) return;
-  area = wa;
-  if (!win) return;
-  win.setBounds(area);
-  win.webContents.send(IPC.world, { width: area.width, height: area.height });
-}
+const describeAreas = (list: Iterable<{ displayId: number; area: { x: number; y: number; width: number; height: number } }>): string =>
+  [...list].map((o) => `#${o.displayId} ${o.area.width}x${o.area.height}@${o.area.x},${o.area.y}`).join(' | ');
 
 /**
- * The window ignores the mouse except while the cursor is over the pet (or a drag is running).
- * Polling the cursor here is what lets the pet follow it even though the window never sees events
- * from other apps, and lets the hit test run without the renderer receiving any mouse input.
+ * Makes the overlays match the monitors: one for each monitor the pet lives on, none for the others. New windows
+ * come first, so the pet always has somewhere to stand while screens come and go.
  */
-function startCursorLoop(): void {
-  let last = { x: Number.NaN, y: Number.NaN };
-  let lastSent = 0;
+function syncDisplays(): void {
+  const chosen = chooseDisplays(readDisplays(), settings.monitor);
+  if (chosen.length === 0) {
+    // every monitor is gone for the moment (a remote session ending, say): keep what is up until they are back
+    log('warn', 'no monitor found');
+    return;
+  }
+  const wanted = new Set(chosen.map((d) => d.id));
+  for (const d of chosen) {
+    const have = overlays.get(d.id);
+    if (have?.alive) have.refit(d);
+    else overlays.set(d.id, new Overlay(d, ORIGIN));
+  }
+  for (const [id, o] of overlays) {
+    if (wanted.has(id)) continue;
+    o.close();
+    overlays.delete(id);
+  }
+  const ordered = chosen.map((d) => overlays.get(d.id)!);
+  stage.setWindows(ordered);
+  void rebuildMenu();
+  log('info', `screens: ${describeAreas(ordered)}`);
+}
+
+let settleTimer: ReturnType<typeof setTimeout> | null = null;
+function syncDisplaysSoon(ms = DISPLAY_SETTLE_MS): void {
+  if (settleTimer) clearTimeout(settleTimer);
+  settleTimer = setTimeout(() => {
+    settleTimer = null;
+    try {
+      syncDisplays();
+    } catch (err) {
+      log('error', `could not update the monitors: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
+    }
+  }, ms);
+}
+
+function tellAll(channel: string, payload: unknown): void {
+  for (const o of overlays.values()) o.tell(channel, payload);
+}
+
+// --- the simulation ---------------------------------------------------------------------------------
+
+function startLoop(): void {
+  let failures = 0;
   setInterval(() => {
-    if (!win || win.isDestroyed() || win.webContents.isLoading()) return;
-    const p = screen.getCursorScreenPoint();
-    const x = p.x - area.x;
-    const y = p.y - area.y;
-    const now = Date.now();
-    if (x !== last.x || y !== last.y || now - lastSent > 250) {
-      win.webContents.send(IPC.cursor, { x, y });
-      last = { x, y };
-      lastSent = now;
+    try {
+      stage.tick(performance.now());
+    } catch (err) {
+      // a broken step must not stop the pet for good; say so once in a while instead of 60 times a second
+      if (failures++ % 600 === 0) log('error', `tick failed: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
     }
-    const over = dragging || (report?.interactive === true && inEllipse({ x, y }, report.rect) && !makerCovers(p));
-    if (over === ignoring) {
-      ignoring = !over;
-      win.setIgnoreMouseEvents(ignoring, { forward: true });
-      if (DEBUG) log('info', `click-through ${ignoring ? 'on' : 'off'} cursor=${x},${y} dragging=${dragging} rect=${JSON.stringify(report?.rect)}`);
-    }
-  }, 16);
+  }, TICK_MS);
 }
 
 function registerIpc(): void {
   ipcMain.handle(IPC.init, async (e): Promise<InitInfo> => {
-    if (!trusted(e)) throw new Error('untrusted sender');
+    const o = overlayOf(e);
+    if (!o) throw new Error('untrusted sender');
+    o.ready = true;
     return {
-      world: { width: area.width, height: area.height },
+      area: o.area,
       settings,
       skins: await listSkins(),
       platform: process.platform,
       version: app.getVersion(),
     };
   });
-  ipcMain.on(IPC.hitbox, (e, r: unknown) => {
-    const ok = trusted(e) && isHitbox(r);
-    if (ok) report = r as HitboxReport;
-    if (DEBUG && (!ok || !seenHitbox)) log('info', `hitbox report ok=${ok} ${JSON.stringify(r)}`);
-    seenHitbox = true;
+  ipcMain.on(IPC.pointer, (e, raw: unknown) => {
+    const o = overlayOf(e);
+    const report = parsePointer(raw);
+    if (o && report) stage.pointer(o, report);
   });
-  ipcMain.on(IPC.dragging, (e, on: unknown) => {
-    if (trusted(e)) dragging = on === true;
+  ipcMain.on(IPC.skinGeometry, (e, raw: unknown) => {
+    const g = overlayOf(e) && parseGeometry(raw);
+    if (!g) return;
+    // every overlay reports the skin it loaded; the pet only needs to hear about a change
+    const key = JSON.stringify(g);
+    if (key === lastGeometry) return;
+    lastGeometry = key;
+    stage.setSkin(g);
   });
   ipcMain.on(IPC.log, (e, level: unknown, message: unknown) => {
-    if (!trusted(e)) return;
+    if (!overlayOf(e)) return;
     log(level === 'warn' || level === 'error' ? level : 'info', `[renderer] ${String(message).slice(0, 2000)}`);
   });
 }
@@ -206,7 +191,9 @@ function update(patch: Partial<Settings>): void {
   settings = { ...settings, ...patch };
   saveSettings(settings);
   if (patch.autoStart !== undefined) applyAutoStart();
-  win?.webContents.send(IPC.settings, settings);
+  stage.setSettings(settings);
+  tellAll(IPC.settings, settings);
+  if (patch.monitor !== undefined) syncDisplaysSoon(0);
   void rebuildMenu();
 }
 
@@ -220,6 +207,13 @@ function applyAutoStart(): void {
   }
 }
 
+/** "1. 1920x1080 (main)" — the real pixel size, since the shared coordinates are scaled. */
+function monitorLabel(d: DisplayInfo, number: number): string {
+  const s = t();
+  const size = `${Math.round(d.bounds.width * d.scaleFactor)}x${Math.round(d.bounds.height * d.scaleFactor)}`;
+  return s.monitorItem(number, size, d.primary);
+}
+
 async function rebuildMenu(): Promise<void> {
   if (!tray) return;
   const s = t();
@@ -230,6 +224,23 @@ async function rebuildMenu(): Promise<void> {
     checked: value === current,
     click: () => apply(value),
   });
+  const displays = readDisplays();
+  // a chosen monitor that is unplugged is shown as the main one, which is where the pet is then
+  const monitor = /^\d+$/.test(settings.monitor) && !displays.some((d) => String(d.id) === settings.monitor) ? MONITOR_PRIMARY : settings.monitor;
+  const monitors: MenuItemConstructorOptions[] =
+    displays.length > 1 || settings.monitor !== MONITOR_ALL
+      ? [
+          {
+            label: s.monitor,
+            submenu: [
+              radio(s.monitorAll, MONITOR_ALL, monitor, (m) => update({ monitor: m })),
+              radio(s.monitorPrimary, MONITOR_PRIMARY, monitor, (m) => update({ monitor: m })),
+              ...(displays.length > 1 ? [{ type: 'separator' } as MenuItemConstructorOptions] : []),
+              ...(displays.length > 1 ? displays.map((d, i) => radio(monitorLabel(d, i + 1), String(d.id), monitor, (m) => update({ monitor: m }))) : []),
+            ],
+          },
+        ]
+      : [];
   tray.setContextMenu(
     Menu.buildFromTemplate([
       {
@@ -257,6 +268,7 @@ async function rebuildMenu(): Promise<void> {
           radio<Roam>(s.roamFloor, 'floor', settings.roam, (roam) => update({ roam })),
         ],
       },
+      ...monitors,
       {
         label: s.skin,
         submenu: [
@@ -283,6 +295,30 @@ function createTray(): void {
   void rebuildMenu();
 }
 
+/** Handles for the end-to-end tests. Only an unpackaged run (never an installed app) gets them. */
+function exposeTestHooks(): void {
+  if (app.isPackaged || !process.env.BUDDY_TEST) return;
+  (globalThis as Record<string, unknown>).__buddyTest = {
+    /** replaces the monitors with made-up ones (or the real ones again with null) */
+    setDisplays: (list: unknown) => {
+      setFakeDisplays(list === null ? null : parseFakeDisplays(list));
+      syncDisplaysSoon(0);
+    },
+    settings: () => settings,
+    update: (patch: Partial<Settings>) => update(patch),
+    view: () => (stage.view ? { ...stage.view, particles: [...stage.view.particles] } : null),
+    windows: () =>
+      [...overlays.values()].map((o) => ({
+        id: o.displayId,
+        area: o.area,
+        bounds: o.alive ? o.win.getBounds() : null,
+        ready: o.ready,
+        ignoring: o.ignoring,
+        url: o.alive ? o.win.webContents.getURL() : '',
+      })),
+  };
+}
+
 // --- lifecycle -----------------------------------------------------------------------------------
 
 async function boot(): Promise<void> {
@@ -290,25 +326,32 @@ async function boot(): Promise<void> {
   session.defaultSession.setPermissionRequestHandler((_wc, _permission, cb) => cb(false));
   ensureUserSkinsDir();
   settings = loadSettings();
+  stage = new Stage({ cursor: () => screen.getCursorScreenPoint(), covered: makerCovers }, settings);
   registerProtocol();
   registerIpc();
   registerMakerIpc({
     onSaved: (id) => {
       // a skin that is on screen right now is re-read; the tray list picks up new ones
-      if (settings.skin === id) win?.webContents.send(IPC.reloadSkin);
+      if (settings.skin === id) tellAll(IPC.reloadSkin, undefined);
       void rebuildMenu();
     },
     apply: (skin) => update({ skin }),
   });
   applyAutoStart();
-  createOverlay();
+  try {
+    syncDisplays();
+  } catch (err) {
+    // the tray still works without a pet on screen, and the next change of monitors tries again
+    log('error', `could not open the overlays: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
+  }
   createTray();
-  startCursorLoop();
-  screen.on('display-metrics-changed', refreshArea);
-  screen.on('display-added', refreshArea);
-  screen.on('display-removed', refreshArea);
+  startLoop();
+  screen.on('display-added', () => syncDisplaysSoon());
+  screen.on('display-removed', () => syncDisplaysSoon());
+  screen.on('display-metrics-changed', () => syncDisplaysSoon());
+  exposeTestHooks();
   if (!globalShortcut.register(QUIT_SHORTCUT, () => app.quit())) log('warn', `could not register ${QUIT_SHORTCUT}`);
-  log('info', `started v${app.getVersion()} (electron ${process.versions.electron}, ${process.platform}, area ${JSON.stringify(area)})`);
+  log('info', `started v${app.getVersion()} (electron ${process.versions.electron}, ${process.platform}, screens ${describeAreas(overlays.values())})`);
   if (process.argv.includes(MAKER_FLAG)) openMaker();
 }
 
@@ -326,7 +369,8 @@ if (!app.requestSingleInstanceLock()) {
   });
 }
 
-app.on('window-all-closed', () => app.quit());
+// The pet lives in the tray: a moment without any overlay (the monitors are being swapped) must not end the app.
+app.on('window-all-closed', () => {});
 app.on('will-quit', () => globalShortcut.unregisterAll());
 process.on('uncaughtException', (err) => log('error', `uncaught: ${err.stack ?? err.message}`));
 process.on('unhandledRejection', (reason) => log('error', `unhandled rejection: ${String(reason)}`));

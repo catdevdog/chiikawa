@@ -1,4 +1,5 @@
 import type { Mode, Roam } from '../engine/types';
+import { isMonitorChoice } from './displays';
 import { isSkinId } from './ids';
 import { DEFAULT_SETTINGS, type Settings } from './types';
 
@@ -18,5 +19,6 @@ export function sanitizeSettings(raw: unknown): Settings {
     skin: isSkinId(r.skin) ? r.skin : d.skin,
     clickThrough: r.clickThrough === true,
     autoStart: r.autoStart === true,
+    monitor: isMonitorChoice(r.monitor) ? r.monitor : d.monitor,
   };
 }
