@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { isSkinId } from '../shared/ids';
+import { sortSkins } from '../shared/skin-order';
 import type { SkinInfo } from '../shared/types';
 import { safeJoin } from './safe-path';
 
@@ -67,7 +68,7 @@ export async function listSkins(): Promise<SkinInfo[]> {
       }
     }
   }
-  return [...found.values()];
+  return sortSkins([...found.values()]);
 }
 
 const SKINS_README = `Desktop Buddy skin packs

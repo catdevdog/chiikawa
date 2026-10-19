@@ -2,6 +2,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { isSkinId } from '../src/shared/ids';
 import { sanitizeSettings } from '../src/shared/sanitize';
+import { sortSkins } from '../src/shared/skin-order';
 import { DEFAULT_SETTINGS } from '../src/shared/types';
 import { parsePointer, parseSkinReport } from '../src/shared/validate';
 import { safeJoin } from '../src/shell/safe-path';
@@ -107,5 +108,26 @@ describe('what an overlay may report', () => {
     for (const bad of [null, 'down', {}, { kind: 'move', x: 1, y: 1 }, { kind: 'down', x: Infinity, y: 1 }, { kind: 'down', x: 1 }, { kind: 'up', x: '1', y: 2 }]) {
       expect(parsePointer(bad)).toBeNull();
     }
+  });
+});
+
+describe('sortSkins', () => {
+  it('lists the bundled skins first and each group by name', () => {
+    const list = [
+      { id: 'mine', name: 'Zed', builtin: false },
+      { id: 'usagi', name: 'Usagi', builtin: true },
+      { id: 'default', name: 'Sprout', builtin: true },
+      { id: 'chiikawa', name: 'Chiikawa', builtin: true },
+      { id: 'abc', name: 'abc', builtin: false },
+    ];
+    expect(sortSkins(list).map((s) => s.id)).toEqual(['chiikawa', 'default', 'usagi', 'abc', 'mine']);
+    // the input is left as it was
+    expect(list[0]!.id).toBe('mine');
+  });
+
+  it('breaks a tie between equal names by id, so the order never depends on the folder listing', () => {
+    const a = { id: 'a-copy', name: 'Same', builtin: false };
+    const b = { id: 'b-copy', name: 'Same', builtin: false };
+    expect(sortSkins([b, a]).map((s) => s.id)).toEqual(['a-copy', 'b-copy']);
   });
 });
