@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, type IpcMainInvokeEvent } from 'electron';
+import { app, BrowserWindow, ipcMain, nativeTheme, screen, type IpcMainInvokeEvent } from 'electron';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { isSkinId } from '../shared/ids.ts';
@@ -17,14 +17,16 @@ export function openMaker(): void {
     makerWindow.focus();
     return;
   }
+  // laptop screens are smaller than the design size
+  const { width, height } = screen.getPrimaryDisplay().workArea;
   makerWindow = new BrowserWindow({
-    width: 1280,
-    height: 860,
-    minWidth: 900,
-    minHeight: 600,
+    width: Math.min(1280, width),
+    height: Math.min(860, height),
+    minWidth: Math.min(900, width),
+    minHeight: Math.min(600, height),
     title: '스킨 메이커',
     autoHideMenuBar: true,
-    backgroundColor: '#f4f6fa',
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#14181f' : '#f4f6fa',
     webPreferences: {
       preload: path.join(__dirname, 'maker-preload.cjs'),
       contextIsolation: true,
