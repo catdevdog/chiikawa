@@ -79,10 +79,15 @@ function drawPet(ctx: CanvasRenderingContext2D, v: PetView, skin: Skin): void {
   ctx.save();
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
+  const reach = 4 * Math.max(bw, bh) * v.scale;
   if (over) {
-    const reach = 2 * Math.max(bw, bh) * v.scale;
     ctx.beginPath();
     ctx.rect(v.x - reach, v.y - reach, 2 * reach, reach);
+    ctx.clip();
+  } else if (v.state === 'peek' && v.wall !== null) {
+    // behind the wall there is nothing to see: at the edge of the screens that is beyond them, at the side of a window it is the window
+    ctx.beginPath();
+    ctx.rect(v.wallSide === 1 ? v.wall - reach : v.wall, v.y - reach, reach, 2 * reach);
     ctx.clip();
   }
   ctx.translate(v.x, v.y - lift + sink);

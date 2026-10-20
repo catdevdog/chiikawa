@@ -110,7 +110,7 @@ describe('bundled skins', () => {
         }
       });
 
-      it('has a picture of its own for hiding at a wall (a tilted face and the hands), and its sheet has all of its frames', () => {
+      it('has a picture of its own for hiding at a wall (a face turned away from it and two hands), and its sheet has all of its frames', () => {
         const manifest = parseManifest(JSON.parse(readFileSync(path.join(dir, 'manifest.json'), 'utf8')), id);
         const peek = manifest.poses.peek;
         expect(peek, `${id}: poses.peek`).toBeTruthy();
@@ -119,6 +119,20 @@ describe('bundled skins', () => {
           // it moves like the ordinary picture does (it blinks when that blinks)
           if (typeof idle === 'object') expect(peek.count, `${id}: peek frames`).toBe(idle.count);
         }
+      });
+
+      it('has a picture of its own for looking over the top edge of a window (the head down to the mouth and two hands), as big as the others and with all of its frames', () => {
+        const manifest = parseManifest(JSON.parse(readFileSync(path.join(dir, 'manifest.json'), 'utf8')), id);
+        const hang = manifest.poses.hang;
+        expect(hang, `${id}: poses.hang`).toBeTruthy();
+        if (typeof hang === 'object') {
+          const idle = manifest.poses.idle;
+          if (typeof idle === 'object') {
+            expect(hang.count, `${id}: hang frames`).toBe(idle.count);
+            expect([hang.frameWidth, hang.frameHeight], `${id}: hang size`).toEqual([idle.frameWidth, idle.frameHeight]);
+          }
+        }
+        expect(existsSync(path.join(dir, typeof hang === 'string' ? hang : hang!.sheet)), `${id}: the file of poses.hang`).toBe(true);
       });
 
       it('never calls anybody by name', () => {

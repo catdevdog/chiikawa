@@ -87,7 +87,7 @@ const HANG_MS = [5_000, 11_000] as const;
 /** let go beside the side of a window: how near the body has to be to it, how far below the top of the window the feet have to be, how fast the hand may still be moving, and the room kept at the ends */
 const SIDE_NEAR = 30;
 const SIDE_BELOW_TOP = 36;
-const SIDE_MAX_SPEED = 700;
+const SIDE_MAX_SPEED = 1000;
 const SIDE_PAD = 6;
 /** a pet that hides at the side of a window that is gone, or has no room for it any more, holds on this long before it drops */
 const SIDE_GRACE_MS = 500;
@@ -227,7 +227,7 @@ export class Pet {
     this.view = {
       x: 0, y: 0, facing: 1, state: 'idle', t: 0, sx: 1, sy: 1, rot: 0, lift: 0, pivot: 'feet',
       scale: this.cfg.scale, particles: this.particles, hitbox: { x: 0, y: 0, w: 0, h: 0 },
-      interactive: true, animating: false, action: null,
+      interactive: true, animating: false, action: null, wall: null, wallSide: 1,
     };
     if (this.mode === 'attach') this.startHold();
     this.syncView();
@@ -604,7 +604,6 @@ export class Pet {
   lookOver(): boolean {
     const free = this.state === 'idle' || this.state === 'sit' || this.state === 'walk' || this.state === 'run';
     if (!this.standingOn() || this.peek || this.holder || this.summoned || !free) return false;
-    if (this.state === 'sleep') return false;
     this.startHang();
     return true;
   }
@@ -1883,5 +1882,7 @@ export class Pet {
     const calm = this.state === 'idle' || this.state === 'sit' || this.state === 'sleep' || this.state === 'hang' || (this.state === 'peek' && this.peek?.phase === 'wait' && this.peek.duck === 0);
     v.animating = this.particles.length > 0 || !calm;
     v.action = this.state === 'act' ? (this.act?.def.pose ?? null) : null;
+    v.wall = this.state === 'peek' && this.peek ? this.peek.wall.x : null;
+    v.wallSide = this.peek?.wall.side ?? 1;
   }
 }

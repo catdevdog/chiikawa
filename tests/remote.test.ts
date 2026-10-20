@@ -20,6 +20,8 @@ const view = (over: Partial<PetView> = {}): PetView => ({
   interactive: true,
   animating: true,
   action: null,
+  wall: null,
+  wallSide: 1,
   ...over,
 });
 const frame = (over: Partial<ViewFrame> = {}): ViewFrame => ({ id: 'usagi', view: view(), vx: 100, vy: -50, ...over });

@@ -285,4 +285,10 @@ export interface PetView {
   animating: boolean;
   /** while the pet acts: the pose of the action to draw in place of the one for its state; otherwise null */
   action: string | null;
+  /**
+   * while the pet hides: the x of the wall it hides behind and which side it is on (1: the wall is to the right of the pet);
+   * nothing of the pet is drawn on the other side of it. Null when it does not hide.
+   */
+  wall: number | null;
+  wallSide: 1 | -1;
 }

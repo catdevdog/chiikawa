@@ -124,12 +124,19 @@ meet and reply lines can be meant for one friend only, by the folder name of its
 Lines meant for the friend that is met are used when there are any; otherwise the lines without "with".
 
 Hiding (optional): three clicks on a pet send every pet to the nearest edge of the screens, where each
-peeks out with only a part of its face and its hands in view until one of them is clicked. A skin may
-draw that itself, as the pose "peek" in "poses"; without one the ordinary picture leans towards the wall.
+peeks out with only a part of its face and its hands in view until one of them is clicked. A pet that is
+let go beside the left or right edge of a window of another program (Windows) hides at that edge in the
+same way, goes where the window goes, and comes out when it is clicked or taken hold of. A skin may draw
+that itself, as the pose "peek" in "poses"; without one the ordinary picture leans towards the wall.
 Draw it as if a wall stood against the back of the picture, the side the artwork does not face (the right
-side when "facing" is "left"): the picture is cut there, and what shows reaches out from it, a face tilted
-towards the wall and the hands holding the edge. Make it as big as the other poses, with as many frames as
-"idle" has, and the blinking goes on in it as well.
+side when "facing" is "left"): the picture is cut there, the face is turned away from the wall (about 60
+degrees) so that the body goes behind the wall by itself, and two small round hands hold the edge. Make it
+as big as the other poses, with as many frames as "idle" has, and the blinking goes on in it as well.
+
+Over a window (optional): a pet that stands on a window now and then looks over the top edge of it. The pose
+"hang" is that picture: the head down to just under the mouth, standing on the feet line (the picture ends
+there, as the edge of the window does), with a small round hand on the edge at each side of the face. Without
+one the top of the ordinary picture shows over the edge.
 
 Actions (optional): short shows with pictures of their own, now and then or for a situation.
 Put the pictures in "poses" and list them:
@@ -162,11 +169,17 @@ meet와 reply 줄에 "with": ["usagi"]처럼 친구 스킨의 폴더 이름을 �
 트레이 메뉴의 "대사"에서 끄거나 반응할 때만 말하게 할 수 있습니다.
 
 숨기(선택): 펫을 세 번 클릭하면 모든 펫이 화면의 가장 가까운 가장자리로 가서 얼굴 일부와 손만 내밀고
-숨습니다. 숨은 펫 가운데 하나를 클릭하면 모두 나옵니다. "poses"에 "peek" 포즈를 넣으면 그 그림으로 숨고,
-없으면 기본 그림이 벽 쪽으로 기울어집니다. 그림은 그림이 바라보는 쪽의 반대편에 벽이 있다고 보고 그립니다
-("facing"이 "left"이면 오른쪽입니다). 그 가장자리에서 그림이 잘려 있어야 하고, 보이는 부분은 거기서부터
-나옵니다. 벽 쪽으로 기울인 얼굴과 벽을 잡은 손을 그리면 됩니다. 크기는 다른 포즈와 같게, 프레임 수는
-"idle"과 같게 하면 눈 깜빡임도 같이 움직입니다.
+숨습니다. 숨은 펫 가운데 하나를 클릭하면 모두 나옵니다. 펫을 끌어서 다른 프로그램 창(Windows)의 왼쪽이나
+오른쪽 가장자리 옆에 놓으면 그 창 옆에도 같은 모습으로 숨고, 창이 움직이면 같이 움직이며, 클릭하거나
+끌어내리면 나옵니다. "poses"에 "peek" 포즈를 넣으면 그 그림으로 숨고, 없으면 기본 그림이 벽 쪽으로
+기울어집니다. 그림은 그림이 바라보는 쪽의 반대편에 벽이 있다고 보고 그립니다("facing"이 "left"이면
+오른쪽입니다). 그 가장자리에서 그림이 잘려 있어야 하고, 얼굴은 벽의 반대쪽으로 60도쯤 돌려서 몸이
+저절로 벽 뒤로 넘어가게 하고, 작은 동그란 손 두 개가 가장자리를 잡습니다. 크기는 다른 포즈와 같게, 프레임
+수는 "idle"과 같게 하면 눈 깜빡임도 같이 움직입니다.
+
+창 위에서(선택): 창 위에 앉은 펫은 가끔 창의 윗변 너머로 얼굴을 내밀고 쳐다봅니다. "hang" 포즈가 그
+그림입니다. 입 바로 아래까지의 머리를 발 위치 선(그림이 거기서 끝나고, 창의 윗변이 거기입니다)에 세우고,
+얼굴 양옆의 윗변에 작은 동그란 손을 하나씩 그립니다. 없으면 기본 그림의 윗부분이 윗변 너머로 보입니다.
 
 재롱(선택): "actions"에 적으면 펫이 가끔, 또는 어떤 상황에서 그림으로 짧은 행동을 합니다. 그림은 "poses"에
 다른 포즈처럼 넣고 이렇게 적습니다: "actions": { "camera": { "pose": "camera", "ms": 3600, "motion": "still",

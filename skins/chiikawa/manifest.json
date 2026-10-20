@@ -82,6 +82,20 @@
         900,
         1000
       ]
+    },
+    "hang": {
+      "sheet": "hang.png",
+      "frameWidth": 320,
+      "frameHeight": 260,
+      "count": 6,
+      "durations": [
+        1500,
+        70,
+        90,
+        70,
+        900,
+        1000
+      ]
     }
   },
   "motion": {

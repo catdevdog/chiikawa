@@ -68,7 +68,7 @@ export interface HangLayout {
 }
 
 /** The part of the body, from the top of the hitbox down, that shows over the edge when the ordinary picture is the one that looks over it. */
-export const HANG_SHOWN = 0.55;
+export const HANG_SHOWN = 0.66;
 
 export function defaultHang(sprite: PetConfig['sprite'], hitbox: Rect): HangLayout {
   const w = sprite.w;
