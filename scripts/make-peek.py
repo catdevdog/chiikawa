@@ -31,7 +31,8 @@ import json
 import sys
 from pathlib import Path
 
-from PIL import Image
+import numpy as np
+from PIL import Image, ImageDraw
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import peek_art as pa  # noqa: E402
@@ -127,6 +128,48 @@ def chiikawa_prepare(img):
     return pa.bridge(f, rows=(178, 218), x_span=(60, 135), ink=CHIIKAWA_INK, fill=CHIIKAWA_BODY, outside='left', window=6)
 
 
+RAKKO_INK = (34, 19, 17)
+RAKKO_HAND = (52, 34, 31)     # the hands in the art are as dark as the outline; a little lighter here so the ring reads
+RAKKO_BODY = (252, 242, 219)
+
+# Low on the left side of Rakko's body: the scarf is a white band across the body, and at its left end hang a loose end of
+# the scarf (a flap) and a dark hand. Once the picture is turned they stick out of the body below the face. They are taken
+# off, and the scarf band with them (what would still show of it is its round end beside the hands, and that reads as
+# a loose end again). The body outline here is only the plain edge of the cream, so it is drawn straight on from the head's
+# edge (clean down to row 178) to the body's edge, and the body is filled to it.
+# RAKKO_EDGE: (x, y) of that new left edge of the body, in pixels of the frame.
+RAKKO_EDGE = [
+    (41.5, 178.0), (43.0, 180.0), (44.5, 182.0), (46.0, 184.0), (48.2, 188.0), (50.3, 192.0), (52.2, 196.0), (54.0, 200.0),
+    (55.4, 204.0), (56.6, 208.0), (57.5, 212.0), (58.2, 217.0), (58.9, 223.0), (60.0, 231.0), (61.5, 241.0), (63.0, 250.0),
+    (66.0, 257.0), (71.0, 263.0), (80.0, 271.0), (86.0, 277.0),
+]
+RAKKO_FILL_RIGHT = 140.0     # to the right of this column, and below the last row, the picture is left as it is (behind the wall)
+RAKKO_FILL_TOP = 177.0
+RAKKO_FILL_BOTTOM = 277.0
+
+
+def rakko_prepare(img):
+    """`img` is a frame made SS times as big. Takes off the scarf, its loose end and the left hand (all rows alike)."""
+    ss = pa.SS
+    arr = np.asarray(img).copy()
+    h, w = arr.shape[:2]
+    curve = [(x * ss, y * ss) for x, y in RAKKO_EDGE]
+    # left of the new edge: nothing
+    gone = Image.new('L', (w, h), 0)
+    ImageDraw.Draw(gone).polygon([(0, RAKKO_EDGE[0][1] * ss)] + curve + [(0, RAKKO_FILL_BOTTOM * ss)], fill=255)
+    arr[np.asarray(gone) > 0] = 0
+    # right of it: plain body, over the scarf band, the hand and the top of the flap
+    paint = Image.new('L', (w, h), 0)
+    corner = (RAKKO_EDGE[0][0] + 3.5) * ss
+    ImageDraw.Draw(paint).polygon(
+        [(corner, RAKKO_FILL_TOP * ss), (RAKKO_FILL_RIGHT * ss, RAKKO_FILL_TOP * ss), (RAKKO_FILL_RIGHT * ss, RAKKO_FILL_BOTTOM * ss),
+         (curve[-1][0], RAKKO_FILL_BOTTOM * ss)] + curve[::-1], fill=255)
+    m = np.asarray(paint) > 0
+    arr[m, :3] = np.array(RAKKO_BODY, dtype=np.uint8)
+    arr[m, 3] = 254
+    return Image.fromarray(arr, 'RGBA')
+
+
 SKINS = {
     'usagi': dict(
         ink=USAGI_INK,
@@ -152,6 +195,21 @@ SKINS = {
         prepare=chiikawa_prepare,
         peek=dict(face=(157, 137), tilt=60, wall_dx=34, bottom=210, hands=[(2, 176), (2, 210)], hand_r=11.5, hand_w=4.5),
         hang=dict(cut=182, face_x=160.5, hands_dx=61.5, hand_r=11.5, hand_w=4.5),
+    ),
+    'rakko': dict(
+        ink=RAKKO_INK,
+        hand=RAKKO_HAND,
+        prepare=rakko_prepare,
+        # face: the point the picture turns about. The middle of the eyes is (154, 131); it is moved 10 px to the right, so that the
+        # right ear is not clipped by the top of the frame while the picture turns (the picture is the same, only 8.7 px lower in
+        # the frame); wall_dx: the rightmost pixel of the mouth (the little curve under it included) turns to 32.9 to the right of
+        # the middle of the eyes and the wall is 2 more, that is 35, and 30 for the moved face; bottom: the row where the lower
+        # edge of the head meets the wall, the lower hand is 2 px under it and the upper hand 2 * (r + w) + 2 above that;
+        # the outside of a hand, 2 * (r + w) = 48, is 0.19 of the head's width (250)
+        peek=dict(face=(164, 131), tilt=60, wall_dx=30, bottom=272, hands=[(2, 224), (2, 274)], hand_r=18, hand_w=6),
+        # cut: 12 px under the last row of the mouth (167), just above the top of the scarf (178); face_x: the middle of the head
+        # at the cut (from x 43 to 269; the middle of the eyes is 2 px to the left of it); hands_dx: 0.85 of half of that width
+        hang=dict(cut=179, face_x=156, hands_dx=96, hand_r=18, hand_w=6),
     ),
 }
 

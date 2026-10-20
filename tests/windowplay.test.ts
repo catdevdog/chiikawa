@@ -109,6 +109,18 @@ describe('looking over the top edge of a window', () => {
     expect(['idle', 'sit', 'walk']).toContain(pet.view.state);
   });
 
+  it('does it just the same when it may go anywhere on the screen, and stays where it is if the window goes away', () => {
+    const pet = onWindow(2, { roam: 'free' });
+    expect(untilHanging(pet)).toBe(true);
+    expect(pet.view.y).toBeCloseTo(500, 1);
+    pet.setPlatforms([]);
+    run(pet, 400);
+    // it does not fall: a pet that goes anywhere is as happy in the air
+    expect(pet.hanging).toBe(false);
+    expect(pet.view.state).not.toBe('fall');
+    expect(pet.view.y).toBeCloseTo(500, 1);
+  });
+
   it('never does it on the floor, or in the air', () => {
     const pet = make(3, { chatty: true });
     let hung = false;
