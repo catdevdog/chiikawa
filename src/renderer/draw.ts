@@ -1,3 +1,4 @@
+import { HANG_SHOWN } from '../engine/peek';
 import type { Particle, PetView } from '../engine/types';
 import type { Skin } from './skin';
 
@@ -42,8 +43,8 @@ export function drawScene(ctx: CanvasRenderingContext2D, pets: readonly DrawnPet
 const PEEK_LEAN = 0.17;
 
 function drawShadow(ctx: CanvasRenderingContext2D, v: PetView, skin: Skin): void {
-  // nothing underneath a pet that is hanging, in the air or up a wall
-  if (v.pivot === 'top' || v.state === 'fall' || v.state === 'peek') return;
+  // nothing underneath a pet that is hanging, in the air, up a wall or behind the edge of a window
+  if (v.pivot === 'top' || v.state === 'fall' || v.state === 'peek' || v.state === 'hang') return;
   const rx = skin.box.w * v.scale * 0.3 * (1 - Math.min(v.lift / (60 * v.scale), 0.4));
   ctx.save();
   ctx.fillStyle = 'rgba(0, 0, 0, 0.11)';
@@ -70,11 +71,21 @@ function drawPet(ctx: CanvasRenderingContext2D, v: PetView, skin: Skin): void {
   const dh = frame.height * fit;
   const dx = (bw - dw) / 2;
   const dy = bh - dh;
+  // a skin without a picture of its own for looking over the top of a window shows the top of its ordinary one: moved down
+  // until the part that shows ends on the feet line (the edge), and cut there
+  const over = v.state === 'hang' && !skin.hang;
+  const sink = over ? (anchorY - skin.hitbox.y - HANG_SHOWN * skin.hitbox.h) * bh * v.scale : 0;
 
   ctx.save();
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
-  ctx.translate(v.x, v.y - lift);
+  if (over) {
+    const reach = 2 * Math.max(bw, bh) * v.scale;
+    ctx.beginPath();
+    ctx.rect(v.x - reach, v.y - reach, 2 * reach, reach);
+    ctx.clip();
+  }
+  ctx.translate(v.x, v.y - lift + sink);
   if (rot) {
     // rotation happens in screen space, so mirroring the sprite does not mirror the swing
     const pivotY = v.pivot === 'top' ? -anchorY * bh * v.scale : 0;

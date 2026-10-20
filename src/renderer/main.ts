@@ -50,6 +50,7 @@ const reportOf = (id: string, skin: Skin): SkinReport => ({
   hitbox: { ...skin.hitbox },
   ...(skin.body === undefined ? {} : { body: skin.body }),
   ...(skin.peek === undefined ? {} : { peek: skin.peek }),
+  ...(skin.hang === undefined ? {} : { hang: skin.hang }),
   lines: skin.lines,
   actions: skin.actions,
 });
@@ -100,7 +101,7 @@ async function start(): Promise<void> {
     host.reportSkin(reportOf(id, next));
     if (id === settings.skin) {
       skin = next;
-      pet?.setSprite(next.box, next.hitbox, next.peek);
+      pet?.setSprite(next.box, next.hitbox, next.peek, next.hang);
       pet?.setLines(next.lines);
       pet?.setActions(next.actions);
     }
@@ -130,6 +131,7 @@ async function start(): Promise<void> {
           sprite: skin!.box,
           hitbox: skin!.hitbox,
           peek: skin!.peek,
+          hang: skin!.hang,
           ...(sleepAfter > 0 ? { sleepAfterMs: sleepAfter } : {}),
         },
       })

@@ -1,4 +1,4 @@
-import type { PeekLayout } from '../engine/peek';
+import type { HangLayout, PeekLayout } from '../engine/peek';
 import type { Frame } from './skin';
 
 /** The longest side of the canvas a picture is measured on: plenty to count pixels by, and cheap to read back. */
@@ -34,16 +34,10 @@ export function measureBody(frame: Frame, box: { w: number; h: number }): number
 }
 
 /**
- * How a picture for hiding meets the wall, measured from where the picture is in the sprite box (the same place
- * `drawPet` puts it): the wall is the back of the picture, on the side that the art does not face (`artFacing`: 1 if
- * the artwork faces right, -1 if it faces left), and the picture reaches from there towards the front. In box pixels
- * at scale 1, from the feet (`anchor`, as fractions of the box). Null when it cannot be measured.
+ * The opaque part of a picture, as a rectangle in the pixels of the sprite box at scale 1 (the picture is placed the way
+ * `drawPet` places it). Null when it cannot be measured, or nothing is opaque.
  */
-export function measurePeek(
-  frame: Frame,
-  box: { w: number; h: number; anchorX: number; anchorY: number },
-  artFacing: 1 | -1,
-): PeekLayout | null {
+function opaqueBounds(frame: Frame, box: { w: number; h: number }): { left: number; right: number; top: number; bottom: number } | null {
   try {
     const r = Math.min(1, SIDE / Math.max(box.w, box.h));
     const cw = Math.max(1, Math.round(box.w * r));
@@ -72,15 +66,39 @@ export function measurePeek(
     }
     if (x1 < 0) return null;
     // box pixels (the last pixel counts whole)
-    const left = x0 / r;
-    const right = (x1 + 1) / r;
-    const top = y0 / r;
-    const bottom = (y1 + 1) / r;
-    const feet = { x: box.anchorX * box.w, y: box.anchorY * box.h };
-    const behind = artFacing === -1 ? right : left;
-    const edge = artFacing === -1 ? behind - feet.x : feet.x - behind;
-    return { edge, reach: right - left, top: feet.y - top, bottom: bottom - feet.y };
+    return { left: x0 / r, right: (x1 + 1) / r, top: y0 / r, bottom: (y1 + 1) / r };
   } catch {
     return null;
   }
+}
+
+/**
+ * How a picture for hiding meets the wall, measured from where the picture is in the sprite box (the same place
+ * `drawPet` puts it): the wall is the back of the picture, on the side that the art does not face (`artFacing`: 1 if
+ * the artwork faces right, -1 if it faces left), and the picture reaches from there towards the front. In box pixels
+ * at scale 1, from the feet (`anchor`, as fractions of the box). Null when it cannot be measured.
+ */
+export function measurePeek(
+  frame: Frame,
+  box: { w: number; h: number; anchorX: number; anchorY: number },
+  artFacing: 1 | -1,
+): PeekLayout | null {
+  const b = opaqueBounds(frame, box);
+  if (!b) return null;
+  const feet = { x: box.anchorX * box.w, y: box.anchorY * box.h };
+  const behind = artFacing === -1 ? b.right : b.left;
+  const edge = artFacing === -1 ? behind - feet.x : feet.x - behind;
+  return { edge, reach: b.right - b.left, top: feet.y - b.top, bottom: b.bottom - feet.y };
+}
+
+/**
+ * How a picture for looking over the top edge of a window stands on the feet line: how far it reaches to either side of the
+ * feet (the wider side, since the picture is turned about when the pet faces the other way) and how far above them. In box
+ * pixels at scale 1. Null when it cannot be measured.
+ */
+export function measureHang(frame: Frame, box: { w: number; h: number; anchorX: number; anchorY: number }): HangLayout | null {
+  const b = opaqueBounds(frame, box);
+  if (!b) return null;
+  const feet = { x: box.anchorX * box.w, y: box.anchorY * box.h };
+  return { half: Math.max(feet.x - b.left, b.right - feet.x), top: feet.y - b.top };
 }

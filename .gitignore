@@ -160,3 +160,5 @@ release/
 !/skins/hachiware/
 !/skins/chiikawa/
 !/skins/rakko/
+
+__pycache__/

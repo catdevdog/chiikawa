@@ -28,7 +28,7 @@ import { t } from './i18n';
 import { log } from './log';
 import { makerCovers, openMaker, registerMakerIpc } from './maker';
 import { Overlay } from './overlay';
-import { boxesFrom, platformsFrom, type RawWindow, type WindowSource } from './perch';
+import { boxesFrom, platformsFrom, sidesFrom, type RawWindow, type WindowBox, type WindowSource } from './perch';
 import { safeJoin } from './safe-path';
 import { loadSettings, saveSettings } from './settings';
 import { ensureUserSkinsDir, listSkins, MIME, resolveSkinFile, userSkinsDir } from './skins';
@@ -55,6 +55,8 @@ const TICK_MS = 16;
 const DISPLAY_SETTLE_MS = 150;
 /** the windows of other programs are looked at this often (the pets that stand on one follow it smoothly in between) */
 const PERCH_POLL_MS = 200;
+/** the windows that pets go along with are looked at this often, and only those: it is what makes them move with the window */
+const FOLLOW_POLL_MS = 33;
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -85,6 +87,10 @@ let lastMenu: Menu | null = null;
 let perchSource: WindowSource | null = null;
 /** the system's own source, which the end-to-end tests put aside for a made-up one */
 let systemSource: WindowSource | null = null;
+/** the windows as the last look found them (and the quick looks at the ones that are followed kept up to date) */
+let windowBoxes: WindowBox[] = [];
+/** the made-up windows of the end-to-end tests, while there are any */
+let fakeWindows: RawWindow[] | null = null;
 
 /** The overlay window an IPC message came from; anything else (the skin maker, a stray frame) is refused. */
 function overlayOf(e: IpcMainEvent | IpcMainInvokeEvent): Overlay | undefined {
@@ -181,19 +187,59 @@ function startLoop(): void {
     }
   }, TICK_MS);
   setInterval(pollPerch, PERCH_POLL_MS);
+  setInterval(followWindows, FOLLOW_POLL_MS);
 }
 
 /** Looks at the windows of other programs and tells the pets where they can stand. Nothing happens while the setting is off. */
 function pollPerch(): void {
-  if (!settings.perch || stage.isHidden || !perchSource) return;
+  if (!settings.windows || stage.isHidden || !perchSource) return;
   try {
-    stage.setPlatforms(platformsFrom(boxesFrom(perchSource)));
+    publishWindows(boxesFrom(perchSource));
   } catch (err) {
     // give it up for this run rather than failing five times a second
     log('error', `could not read the windows: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
     perchSource = null;
-    stage.setPlatforms([]);
+    publishWindows([]);
     void rebuildMenu();
+  }
+}
+
+/** The windows the pets know about: the tops to stand on and the sides to hide at. */
+function publishWindows(boxes: WindowBox[]): void {
+  windowBoxes = boxes;
+  stage.setPlatforms(platformsFrom(boxes));
+  stage.setSides(sidesFrom(boxes));
+}
+
+/**
+ * Looks at the windows that pets are going along with (the one they stand on or hide at) much more often than the rest,
+ * so that they move with their window and do not trail behind it. A window that is gone is dropped at once.
+ */
+function followWindows(): void {
+  const source = perchSource;
+  if (!settings.windows || stage.isHidden || !source?.frames || windowBoxes.length === 0) return;
+  const ids = stage.followed;
+  if (ids.length === 0) return;
+  try {
+    const fresh = new Map(boxesFrom({ list: () => source.frames!(ids), toDip: source.toDip }).map((b) => [b.id, b]));
+    let changed = false;
+    const next: WindowBox[] = [];
+    for (const b of windowBoxes) {
+      if (!ids.includes(b.id)) {
+        next.push(b);
+        continue;
+      }
+      const f = fresh.get(b.id);
+      if (!f) {
+        changed = true;
+        continue;
+      }
+      if (f.x !== b.x || f.y !== b.y || f.w !== b.w || f.h !== b.h) changed = true;
+      next.push(f);
+    }
+    if (changed) publishWindows(next);
+  } catch {
+    // the full look every PERCH_POLL_MS reports (and gives up on) a source that fails
   }
 }
 
@@ -292,9 +338,9 @@ function update(patch: Partial<Settings>): void {
   if (patch.autoStart !== undefined) applyAutoStart();
   if (patch.autoUpdate !== undefined) updates?.setBackground(settings.autoUpdate);
   stage.setSettings(settings);
-  if (patch.perch !== undefined) {
-    if (settings.perch) pollPerch();
-    else stage.setPlatforms([]);
+  if (patch.windows !== undefined) {
+    if (settings.windows) pollPerch();
+    else publishWindows([]);
   }
   tellAll(IPC.settings, settings);
   if (patch.monitor !== undefined) syncDisplaysSoon(0);
@@ -426,7 +472,7 @@ async function rebuildMenu(): Promise<void> {
       : []),
     // only where the windows of other programs can be read (Windows)
     ...(perchSource
-      ? [{ label: s.perch, type: 'checkbox', checked: settings.perch, click: (i) => update({ perch: i.checked }) } as MenuItemConstructorOptions]
+      ? [{ label: s.windows, type: 'checkbox', checked: settings.windows, click: (i) => update({ windows: i.checked }) } as MenuItemConstructorOptions]
       : []),
     { label: s.autoStart, type: 'checkbox', checked: settings.autoStart, click: (i) => update({ autoStart: i.checked }) },
     // only a build that can update itself has something to switch off
@@ -519,12 +565,28 @@ function exposeTestHooks(): void {
     /** the windows of other programs: made-up ones in place of the system's (or the system's again with null), in the pets' own pixels */
     perch: {
       fake: (list: RawWindow[] | null) => {
-        perchSource = list === null ? systemSource : { list: () => list, toDip: (r) => r };
+        fakeWindows = list;
+        perchSource = list === null ? systemSource : { list: () => list, toDip: (r) => r, frames: (ids) => list.filter((w) => ids.includes(w.id)) };
         void rebuildMenu();
         pollPerch();
       },
       platforms: () => stage.platformList,
+      sides: () => stage.sideList,
       perches: () => stage.perches,
+      attachments: () => stage.attachments,
+      /** the pets (of one skin, or all) that stand on a window look over its top edge now */
+      lookOver: (id?: string) => stage.lookOver(id),
+      /** moves a made-up window in the list without anyone being told: only what watches the windows closely can notice (the end-to-end tests of that) */
+      shift: (id: string, dx: number, dy: number) => {
+        const list = fakeWindows;
+        const w = list?.find((x) => x.id === id);
+        if (!w) return false;
+        w.left += dx;
+        w.right += dx;
+        w.top += dy;
+        w.bottom += dy;
+        return true;
+      },
     },
     view: () => (stage.view ? { ...stage.view, particles: [...stage.view.particles] } : null),
     /** every pet that is on the screens: the main character first, then its friends */

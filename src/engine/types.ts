@@ -1,4 +1,4 @@
-import type { PeekLayout } from './peek';
+import type { HangLayout, PeekLayout } from './peek';
 
 export interface Vec2 {
   x: number;
@@ -29,6 +29,8 @@ export type PetState =
   | 'happy'
   /** hiding at a wall with only a part of the face and the hands showing, waiting to be found */
   | 'peek'
+  /** on the top edge of a window, looking over it with the face down to the mouth and the hands on the edge */
+  | 'hang'
   /** doing one of the skin's actions (a short show with a picture of its own); not a pose a skin maps by state */
   | 'act';
 
@@ -47,6 +49,7 @@ export const PET_STATES: readonly PoseState[] = [
   'surprised',
   'happy',
   'peek',
+  'hang',
 ];
 
 export type ParticleKind = 'heart' | 'z' | 'text';
@@ -180,6 +183,24 @@ export interface Platform {
   ax: number;
 }
 
+/**
+ * The left or right edge of a window: a wall to hide at, in the same coordinates as the screens. A pet hides outside the
+ * window, at the edge, as it hides at the edge of the screens: `side` is 1 for the left edge of the window (the pet is to
+ * the left of it, looking left) and -1 for its right edge.
+ */
+export interface Side {
+  /** names the wall for as long as the window exists: the window's id and `:L` or `:R` */
+  id: string;
+  /** where the edge is */
+  x: number;
+  /** the top and the bottom of the window (the edge runs from one to the other) */
+  y0: number;
+  y1: number;
+  side: 1 | -1;
+  /** the stretches (top, bottom) of the edge that no window in front covers */
+  free: [number, number][];
+}
+
 /** Another pet living on the same screens, as a pet sees it. */
 export interface Peer {
   id: string;
@@ -209,6 +230,8 @@ export interface PetConfig {
   textScale?: number;
   /** what the skin's picture for hiding looks like (without one, the ordinary picture peeks: see `defaultPeek`) */
   peek?: PeekLayout;
+  /** what the skin's picture for looking over the top of a window looks like (without one: see `defaultHang`) */
+  hang?: HangLayout;
   roam: Roam;
   walkSpeed: number;
   runSpeed: number;

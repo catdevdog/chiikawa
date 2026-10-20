@@ -1,4 +1,4 @@
-import type { Platform, Rect } from '../engine/types';
+import type { Platform, Rect, Side } from '../engine/types';
 
 /** A window of another program as the system reports it: its frame in pixels of the screen (not yet scaled to the shared coordinates). */
 export interface RawWindow {
@@ -18,6 +18,8 @@ export interface WindowSource {
   list(): RawWindow[];
   /** a rectangle of the screen's pixels in the coordinates the pets live in */
   toDip(r: Rect): Rect;
+  /** just these windows, quickly (by id), when the source can: the ones the pets are following, which are watched closer than the rest */
+  frames?(ids: string[]): RawWindow[];
 }
 
 /** A window in the coordinates the pets live in. */
@@ -76,6 +78,38 @@ export function platformsFrom(windows: readonly WindowBox[], minWidth = MIN_PERC
     spans
       .filter(([a, b]) => b - a >= minWidth)
       .forEach(([a, b], i) => out.push({ id: i === 0 ? w.id : `${w.id}#${i}`, x0: a, x1: b, y: w.y, ax: w.x }));
+    above.push(w);
+  }
+  return out;
+}
+
+/** A stretch of a window's side that is shorter than this has no room for a pet's feet. */
+const MIN_SIDE_FREE = 60;
+
+/**
+ * The walls to hide at: the left and right edges of the windows, front to back. A window in front hides the stretch of an
+ * edge that it reaches over, so `free` holds what nothing covers. The id is the window's and `:L` or `:R`.
+ */
+export function sidesFrom(windows: readonly WindowBox[]): Side[] {
+  const out: Side[] = [];
+  const seen = new Set<string>();
+  const above: WindowBox[] = [];
+  for (const w of windows) {
+    if (seen.has(w.id)) continue;
+    seen.add(w.id);
+    const edges: [string, number, 1 | -1][] = [
+      ['L', w.x, 1],
+      ['R', w.x + w.w, -1],
+    ];
+    for (const [letter, x, side] of edges) {
+      let free: [number, number][] = [[w.y, w.y + w.h]];
+      for (const o of above) {
+        // only a window that reaches over this x can cover any of the edge
+        if (x < o.x || x > o.x + o.w) continue;
+        free = free.flatMap(([a, b]) => cut(a, b, o.y, o.y + o.h));
+      }
+      out.push({ id: `${w.id}:${letter}`, x, y0: w.y, y1: w.y + w.h, side, free: free.filter(([a, b]) => b - a >= MIN_SIDE_FREE) });
+    }
     above.push(w);
   }
   return out;

@@ -15,6 +15,12 @@ export interface Wall {
   floorY: number;
   /** where the feet are while it waits (up the wall from the floor: pets that hide together do not cover each other) */
   y: number;
+  /**
+   * The side of a window this wall is (a `Side` id), and how far below the top of the window the feet are: the wall goes
+   * where the window goes. Without it the wall is the edge of the screens, which stays where it is.
+   */
+  at?: string;
+  off?: number;
 }
 
 /**
@@ -48,4 +54,26 @@ export function defaultPeek(sprite: PetConfig['sprite'], hitbox: Rect): PeekLayo
 /** The wall a pet is nearest to among the outer edges of the screens: the one on the side of `x` that is further from the middle. */
 export function nearestSide(x: number, bounds: { x0: number; x1: number }): 1 | -1 {
   return x >= (bounds.x0 + bounds.x1) / 2 ? 1 : -1;
+}
+
+/**
+ * What a picture for looking over the top of a window looks like: it stands on the feet line (the edge of the window), so
+ * it is described by how far it reaches to either side of the feet and how far above them. In pixels at scale 1.
+ */
+export interface HangLayout {
+  /** from the feet to the side, at the widest */
+  half: number;
+  /** how far above the feet the picture rises */
+  top: number;
+}
+
+/** The part of the body, from the top of the hitbox down, that shows over the edge when the ordinary picture is the one that looks over it. */
+export const HANG_SHOWN = 0.55;
+
+export function defaultHang(sprite: PetConfig['sprite'], hitbox: Rect): HangLayout {
+  const w = sprite.w;
+  return {
+    half: Math.max(sprite.anchorX - hitbox.x, hitbox.x + hitbox.w - sprite.anchorX) * w,
+    top: HANG_SHOWN * hitbox.h * sprite.h,
+  };
 }

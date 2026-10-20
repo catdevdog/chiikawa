@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { mulberry32, type Platform, type Vec2 } from '../src/engine';
 import { DEFAULT_SETTINGS, type Area, type Settings, type SkinReport, type ViewFrame } from '../src/shared/types';
+import { sidesFrom, type WindowBox } from '../src/shell/perch';
 import { Stage, type StageWindow } from '../src/shell/stage';
 
 const GEOMETRY: SkinReport = { id: 'default', box: { w: 128, h: 128, anchorX: 0.5, anchorY: 0.94 }, hitbox: { x: 0.18, y: 0.22, w: 0.64, h: 0.72 }, lines: {}, actions: {} };
@@ -1194,5 +1195,131 @@ describe('windows to sit on', () => {
     t.run(20_000);
     expect(t.stage.platformList).toEqual([]);
     expect(t.stage.view!.y).toBe(LEFT.height);
+  });
+});
+
+describe('hiding at the side of a window', () => {
+  const box = (id: string, x: number, y: number, w: number, h: number): WindowBox => ({ id, x, y, w, h });
+  const WINDOW = box('w', 500, 100, 500, 400);
+
+  /** a stage whose main character is `main`, with its friends (all skins up) */
+  function crowd(main: string, friends: string[]) {
+    const settings: Settings = { ...SETTINGS, skin: main, friends };
+    const t = setup([LEFT], settings);
+    t.stage.setSkin({ ...GEOMETRY, id: main });
+    for (const id of friends) t.stage.setSkin({ ...GEOMETRY, id });
+    return t;
+  }
+  type Crowd = ReturnType<typeof crowd>;
+  const viewOf = (t: Crowd, id: string) => t.stage.views.find((v) => v.id === id)!.view;
+  const spotOf = (t: Crowd, id: string): Vec2 => {
+    const r = viewOf(t, id).hitbox;
+    return { x: r.x + r.w / 2, y: r.y + r.h / 2 };
+  };
+
+  /** Picks the pet up by its body and lets it go, standing still, with its feet at (x, y). */
+  function dropOnto(t: Crowd, id: string, x: number, y: number): void {
+    const v = viewOf(t, id);
+    const from = spotOf(t, id);
+    const to = { x: from.x + (x - v.x), y: from.y + (y - v.y) };
+    t.press(t.wins[0]!, from);
+    t.drag(from, to);
+    t.run(300);
+    t.release(t.wins[0]!, to);
+  }
+  const click = (t: Crowd, id: string): void => {
+    const at = spotOf(t, id);
+    t.press(t.wins[0]!, at);
+    t.release(t.wins[0]!, at);
+    t.run(50);
+  };
+
+  it('hides there when it is let go beside the edge, and the stage keeps a close eye on that window', () => {
+    const t = crowd('default', []);
+    t.run(300);
+    t.stage.setSides(sidesFrom([WINDOW]));
+    expect(t.stage.sideList.map((s) => s.id)).toEqual(['w:L', 'w:R']);
+    expect(t.stage.followed).toEqual([]);
+    dropOnto(t, 'default', 480, 300);
+    t.run(1500);
+    expect(t.stage.attachments).toEqual([{ id: 'default', at: 'w' }]);
+    expect(t.stage.followed).toEqual(['w']);
+    expect(viewOf(t, 'default').state).toBe('peek');
+    const r = viewOf(t, 'default').hitbox;
+    expect(r.x + r.w).toBeCloseTo(500, 3);
+    // it goes where the window goes
+    t.stage.setSides(sidesFrom([box('w', 700, 150, 500, 400)]));
+    t.run(100);
+    const moved = viewOf(t, 'default').hitbox;
+    expect(moved.x + moved.w).toBeCloseTo(700, 3);
+    expect(viewOf(t, 'default').y).toBeCloseTo(350, 1);
+  });
+
+  it('comes out when it is clicked and falls to the floor', () => {
+    const t = crowd('default', []);
+    t.run(300);
+    t.stage.setSides(sidesFrom([WINDOW]));
+    dropOnto(t, 'default', 480, 300);
+    t.run(1500);
+    click(t, 'default');
+    expect(t.stage.attachments).toEqual([{ id: 'default', at: null }]);
+    expect(t.stage.followed).toEqual([]);
+    t.run(3000);
+    expect(viewOf(t, 'default').y).toBe(LEFT.height);
+  });
+
+  it('is not part of the hiding of the others: three clicks do not move it, and finding them does not bring it out', () => {
+    const t = crowd('chiikawa', ['hachiware']);
+    t.run(300);
+    t.stage.setSides(sidesFrom([WINDOW]));
+    dropOnto(t, 'hachiware', 480, 300);
+    t.run(1500);
+    expect(t.stage.attachments.find((a) => a.id === 'hachiware')!.at).toBe('w');
+    const wall = viewOf(t, 'hachiware').hitbox;
+    // three clicks on the other one: it hides at the wall of the screens; the one at the window stays where it is
+    for (let i = 0; i < 3; i++) {
+      click(t, 'chiikawa');
+      t.run(50);
+    }
+    t.run(9000);
+    expect(viewOf(t, 'chiikawa').state).toBe('peek');
+    // at the edge of the screens (whichever side it was nearer to)
+    const r = viewOf(t, 'chiikawa').hitbox;
+    expect(Math.min(Math.abs(r.x + r.w - LEFT.width), Math.abs(r.x))).toBeLessThan(0.01);
+    expect(t.stage.attachments.find((a) => a.id === 'hachiware')!.at).toBe('w');
+    expect(viewOf(t, 'hachiware').hitbox).toEqual(wall);
+    // finding the one at the wall of the screens does not free the one at the window
+    click(t, 'chiikawa');
+    t.run(200);
+    expect(viewOf(t, 'chiikawa').state).not.toBe('peek');
+    expect(t.stage.attachments.find((a) => a.id === 'hachiware')!.at).toBe('w');
+  });
+
+  it('lets go when the window goes away', () => {
+    const t = crowd('default', []);
+    t.run(300);
+    t.stage.setSides(sidesFrom([WINDOW]));
+    dropOnto(t, 'default', 480, 300);
+    t.run(1500);
+    t.stage.setSides([]);
+    t.run(3500);
+    expect(t.stage.attachments).toEqual([{ id: 'default', at: null }]);
+    expect(viewOf(t, 'default').y).toBe(LEFT.height);
+  });
+
+  it('tells every pet about the edges, also one that comes after', () => {
+    const t = crowd('chiikawa', []);
+    t.run(300);
+    t.stage.setSides(sidesFrom([WINDOW]));
+    t.stage.setSettings({ ...SETTINGS, skin: 'chiikawa', friends: ['hachiware'] });
+    t.stage.setSkin({ ...GEOMETRY, id: 'hachiware' });
+    t.run(100);
+    expect(t.stage.views.map((v) => v.id)).toEqual(['chiikawa', 'hachiware']);
+    dropOnto(t, 'hachiware', 1020, 250);
+    t.run(1500);
+    expect(t.stage.attachments).toEqual([
+      { id: 'chiikawa', at: null },
+      { id: 'hachiware', at: 'w' },
+    ]);
   });
 });

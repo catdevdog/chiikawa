@@ -1,8 +1,8 @@
 import type { Actions, Lines, PetState, Rect } from '../engine/types';
 import { isSkinId } from '../shared/ids';
 import { parseManifest, type PoseSource, type SheetPose } from '../shared/manifest';
-import type { PeekLayout } from '../engine/peek';
-import { measureBody, measurePeek } from './measure';
+import type { HangLayout, PeekLayout } from '../engine/peek';
+import { measureBody, measureHang, measurePeek } from './measure';
 import { resolvePose } from './poses';
 
 export interface Frame {
@@ -41,6 +41,8 @@ export interface Skin {
   body?: number;
   /** how the skin's own picture for hiding meets the wall (see `measurePeek`); none when it has no such picture */
   peek?: PeekLayout;
+  /** how the skin's own picture for looking over the top of a window stands on the edge (see `measureHang`); none when it has no such picture */
+  hang?: HangLayout;
   /** 1 if the artwork faces right, -1 if it faces left */
   artFacing: 1 | -1;
   /** the picture for a state; while it is acting, the pose of the action (`action`) when the skin has it */
@@ -87,6 +89,8 @@ export async function loadSkin(id: string, base = '/skins'): Promise<Skin> {
   // a skin that has a picture of its own for hiding says (by measuring it) how it meets the wall
   const own = sprites.get(manifest.states?.peek && available.has(manifest.states.peek) ? manifest.states.peek : 'peek');
   const peek = own ? measurePeek(own.frameAt(0), box, artFacing) : null;
+  const ownHang = sprites.get(manifest.states?.hang && available.has(manifest.states.hang) ? manifest.states.hang : 'hang');
+  const hang = ownHang ? measureHang(ownHang.frameAt(0), box) : null;
   return {
     id,
     name: manifest.name ?? id,
@@ -94,6 +98,7 @@ export async function loadSkin(id: string, base = '/skins'): Promise<Skin> {
     hitbox: manifest.hitbox!,
     ...(body === null ? {} : { body }),
     ...(peek === null ? {} : { peek }),
+    ...(hang === null ? {} : { hang }),
     artFacing,
     spriteFor: (state, action) => (action ? sprites.get(action) : undefined) ?? sprites.get(resolvePose(state, available, manifest.states))!,
     motionOff: (state) => state !== 'act' && manifest.motion?.[state] === 'off',

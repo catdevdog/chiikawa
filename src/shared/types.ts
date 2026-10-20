@@ -1,4 +1,4 @@
-import type { PeekLayout } from '../engine/peek';
+import type { HangLayout, PeekLayout } from '../engine/peek';
 import type { Actions, Lines, Mode, PetView, Rect, Roam, SpeechLevel } from '../engine/types';
 
 export interface Settings {
@@ -19,8 +19,8 @@ export interface Settings {
   tricks: boolean;
   /** characters that live here besides `skin`, by skin id: each is a pet of its own, and they greet each other */
   friends: string[];
-  /** the pets climb onto the windows of other programs and sit on their top edge (experimental, Windows only) */
-  perch: boolean;
+  /** the pets go about the windows of other programs: they sit on the top edge, look over it, and hide at the sides (Windows only) */
+  windows: boolean;
 }
 
 /** How many friends a pet can have (so the screens hold at most one more than this). */
@@ -38,7 +38,7 @@ export const DEFAULT_SETTINGS: Settings = {
   speech: 'all',
   tricks: true,
   friends: [],
-  perch: false,
+  windows: true,
 };
 
 export interface SkinInfo {
@@ -95,6 +95,8 @@ export interface SkinReport {
   body?: number;
   /** how the skin's own picture for hiding meets the wall (none: the pet leans its ordinary picture towards the wall) */
   peek?: PeekLayout;
+  /** how the skin's own picture for looking over the top of a window stands on the edge (none: the ordinary picture is cut by the edge) */
+  hang?: HangLayout;
   /** what the skin says, by situation */
   lines: Lines;
   /** what the skin does now and then */

@@ -17,11 +17,12 @@ import {
   type Rect,
   type Roam,
   type SayEvent,
+  type Side,
   type SpeechLevel,
   type Vec2,
 } from './types';
-import { defaultPeek, type PeekLayout, type Wall } from './peek';
-import { planHop } from './perch';
+import { defaultHang, defaultPeek, type HangLayout, type PeekLayout, type Wall } from './peek';
+import { planHop, windowOf } from './perch';
 import { Region, type Reach } from './region';
 import { Speaker, textWidth } from './speech';
 import { clamp, dist, inEllipse, mulberry32 } from './vec';
@@ -79,6 +80,17 @@ const DUCK_HOLD_MS = 520;
 const DUCK_DEPTH = 15;
 /** a waiting pet says something to itself this often (ms, from and to) */
 const PEEK_MURMUR_MS = [9_000, 17_000] as const;
+/** each time a pet on a window decides what to do next: how likely it looks over the top edge of the window, and for how long (ms, from and to) */
+const HANG_CHANCE = 0.16;
+const HANG_CHATTY_CHANCE = 0.6;
+const HANG_MS = [5_000, 11_000] as const;
+/** let go beside the side of a window: how near the body has to be to it, how far below the top of the window the feet have to be, how fast the hand may still be moving, and the room kept at the ends */
+const SIDE_NEAR = 30;
+const SIDE_BELOW_TOP = 36;
+const SIDE_MAX_SPEED = 700;
+const SIDE_PAD = 6;
+/** a pet that hides at the side of a window that is gone, or has no room for it any more, holds on this long before it drops */
+const SIDE_GRACE_MS = 500;
 
 export interface PetOptions {
   /** one screen from the origin; its bottom edge is the floor */
@@ -95,6 +107,20 @@ export interface PetOptions {
 }
 
 type Holder = 'user' | 'cursor';
+
+/** Hiding at a wall: see `Pet.peek`. */
+interface Hiding {
+  wall: Wall;
+  phase: 'go' | 'slide' | 'wait';
+  ms: number;
+  stand: Vec2;
+  from: Vec2;
+  spot: Vec2;
+  murmurIn: number;
+  duck: number;
+  /** a wall that is the side of a window: how long it has been without the window (or without room for the picture) */
+  lost: number;
+}
 
 export class Pet {
   mode: Mode;
@@ -151,7 +177,11 @@ export class Pet {
    * hiding behind a wall: where, and how far it has got (`go`: running to the wall, `slide`: slipping behind it and up
    * it, `wait`: peeking out); where it stands before it slips behind, where it peeks from, and how far it has ducked back
    */
-  private peek: { wall: Wall; phase: 'go' | 'slide' | 'wait'; ms: number; stand: Vec2; from: Vec2; spot: Vec2; murmurIn: number; duck: number } | null = null;
+  private peek: Hiding | null = null;
+  /** the side edges of the windows the pet may hide at */
+  private sides: readonly Side[] = [];
+  /** looking over the top edge of the window it stands on: how long that has gone on, how long it will, and when it talks to itself next */
+  private hang: { ms: number; len: number; murmurIn: number } | null = null;
   /** a triple click, and a click on a pet that hides, waiting to be taken by whoever runs the pets */
   private tripled = false;
   private found = false;
@@ -257,16 +287,38 @@ export class Pet {
     this.carry.y += now.y - before.y;
   }
 
+  /** The side edges of the windows, as they are now: a pet that is let go beside one hides there, and goes along when the window moves. */
+  setSides(list: readonly Side[]): void {
+    this.sides = list;
+  }
+
   /** Is the pet standing on a window? (For tests and diagnostics: the window's id.) */
   get perched(): string | null {
     return this.standingOn()?.id ?? null;
   }
 
+  /** Is the pet looking over the top edge of a window? */
+  get hanging(): boolean {
+    return this.state === 'hang';
+  }
+
+  /** Is the pet hiding at the side of a window (and not at the edge of the screens)? */
+  get attached(): boolean {
+    return this.peek?.wall.at !== undefined;
+  }
+
+  /** The window the pet goes along with when it moves (the one it stands on, hangs on or hides at), by its id; null when it has none. */
+  get windowId(): string | null {
+    const id = this.peek ? (this.peek.wall.at ?? null) : this.perch;
+    return id === null ? null : windowOf(id);
+  }
+
   /** Called when a skin changes the sprite box. */
-  setSprite(sprite: PetConfig['sprite'], hitbox: Rect, peek?: PeekLayout | null): void {
+  setSprite(sprite: PetConfig['sprite'], hitbox: Rect, peek?: PeekLayout | null, hang?: HangLayout | null): void {
     this.cfg.sprite = { ...sprite };
     this.cfg.hitbox = { ...hitbox };
     this.cfg.peek = peek ?? undefined;
+    this.cfg.hang = hang ?? undefined;
     this.replace();
   }
 
@@ -403,7 +455,7 @@ export class Pet {
     this.interactionIdleMs = 0;
     if (this.state === 'sleep') this.rouse();
     const stand = this.clampFeet({ x: wall.x, y: this.cfg.roam === 'free' ? wall.y : wall.floorY });
-    this.peek = { wall, phase: 'go', ms: 0, stand, from: { ...this.pos }, spot: this.peekSpot(wall), murmurIn: this.nextPeekMurmur(), duck: 0 };
+    this.peek = { wall, phase: 'go', ms: 0, stand, from: { ...this.pos }, spot: this.peekSpot(wall), murmurIn: this.nextPeekMurmur(), duck: 0, lost: 0 };
     // in the air it first comes down; anything else, it sets off at a run
     if (this.state !== 'fall' && this.state !== 'land' && this.state !== 'held') this.enter('run', true);
   }
@@ -414,6 +466,8 @@ export class Pet {
    */
   unhide(loud = false): void {
     if (!this.peek) return;
+    // a pet that hides at the side of a window is not part of the hiding the others come out of: only a click on it brings it out
+    if (this.peek.wall.at !== undefined && !loud) return;
     this.peek = null;
     this.target = null;
     this.interactionIdleMs = 0;
@@ -445,6 +499,155 @@ export class Pet {
     return this.cfg.peek ?? defaultPeek(this.cfg.sprite, this.cfg.hitbox);
   }
 
+  private hangLayout(): HangLayout {
+    return this.cfg.hang ?? defaultHang(this.cfg.sprite, this.cfg.hitbox);
+  }
+
+  // --- hiding at the side of a window ------------------------------------------------
+
+  /**
+   * The row the feet are at when the pet hides at `side` with its feet near `y`: kept clear of the ends of the window; null
+   * when the window is too short for the picture, or the picture (a rectangle against the window, outside it) would not be
+   * on the screens.
+   */
+  private sideSpot(side: Side, y: number): number | null {
+    const l = this.layout();
+    const s = this.cfg.scale;
+    const top = l.top * s;
+    const bottom = l.bottom * s;
+    if (side.y1 - side.y0 < top + bottom + 2 * SIDE_PAD) return null;
+    const at = clamp(y, side.y0 + top + SIDE_PAD, side.y1 - bottom - SIDE_PAD);
+    const w = l.reach * s;
+    const x0 = side.side === 1 ? side.x - w : side.x;
+    return this.region.fits({ x: x0 + w / 2, y: at + bottom }, { left: w / 2, right: w / 2, top: top + bottom }) ? at : null;
+  }
+
+  /**
+   * The side of a window the pet has been let go beside, if any: the body is at the edge, the feet are well below the top of the
+   * window and where no other window covers the edge, and the picture fits there. The nearest edge wins (the one of the window in front, between two as near).
+   */
+  private sideNear(): { side: Side; y: number } | null {
+    if (this.sides.length === 0) return null;
+    const body = this.hitbox();
+    const feet = this.pos.y;
+    let best: { side: Side; y: number } | null = null;
+    let bestGap = Infinity;
+    for (const side of this.sides) {
+      if (feet < side.y0 + this.k(SIDE_BELOW_TOP) || feet > side.y1 + this.k(SIDE_NEAR)) continue;
+      if (!side.free.some(([a, b]) => feet >= a && feet <= b)) continue;
+      const gap = Math.max(body.x - side.x, side.x - (body.x + body.w), 0);
+      if (gap > this.k(SIDE_NEAR) || gap >= bestGap) continue;
+      const y = this.sideSpot(side, feet);
+      if (y === null) continue;
+      best = { side, y };
+      bestGap = gap;
+    }
+    return best;
+  }
+
+  /** Holds on at the side of a window: slips behind it and peeks out, and goes where the window goes (until it is taken off, or the window goes). */
+  private attach(side: Side, y: number): void {
+    const wall: Wall = { x: side.x, side: side.side, floorY: this.region.floor(this.pos, this.reach()), y, at: side.id, off: y - side.y0 };
+    this.summoned = false;
+    this.act = null;
+    this.fleeDir = null;
+    this.target = null;
+    this.hop = null;
+    this.hover = false;
+    this.leavePerch();
+    this.interactionIdleMs = 0;
+    this.vel = { x: 0, y: 0 };
+    this.facing = side.side === 1 ? -1 : 1;
+    this.peek = { wall, phase: 'slide', ms: 0, stand: { ...this.pos }, from: { ...this.pos }, spot: this.peekSpot(wall), murmurIn: this.nextPeekMurmur(), duck: 0, lost: 0 };
+    this.enter('peek', true);
+  }
+
+  /**
+   * Keeps the wall of a pet that hides at the side of a window where the side is now (the whole way at once: it is held on to).
+   * False once the window has been gone, or has had no room for the picture, for a moment: the pet lets go and falls.
+   */
+  private followSide(pk: Hiding, dt: number): boolean {
+    const w = pk.wall;
+    const side = this.sides.find((q) => q.id === w.at);
+    const y = side ? this.sideSpot(side, side.y0 + (w.off ?? 0)) : null;
+    if (side && y !== null) {
+      pk.lost = 0;
+      if (w.x !== side.x || w.y !== y) {
+        w.x = side.x;
+        w.y = y;
+        pk.spot = this.peekSpot(w);
+      }
+      return true;
+    }
+    pk.lost += dt;
+    if (pk.lost < SIDE_GRACE_MS) return true;
+    this.peek = null;
+    this.target = null;
+    this.startFall(0, 0);
+    return false;
+  }
+
+  // --- looking over the top edge of a window ------------------------------------------
+
+  /** Now and then, when it has just decided what to do next, a pet that stands on a window looks over the top edge of it for a while (no random numbers are used when it does not stand on one). */
+  private maybeHang(): boolean {
+    if (!this.standingOn() || (this.state !== 'idle' && this.state !== 'sit')) return false;
+    if (this.rng() >= (this.speaker.chatty ? HANG_CHATTY_CHANCE : HANG_CHANCE)) return false;
+    this.startHang();
+    return true;
+  }
+
+  /**
+   * Looks over the top edge of the window it stands on now, as if it had felt like it. False when it does not stand on one,
+   * is in someone's hand, is hiding, is on its way to the cursor or is in the air.
+   */
+  lookOver(): boolean {
+    const free = this.state === 'idle' || this.state === 'sit' || this.state === 'walk' || this.state === 'run';
+    if (!this.standingOn() || this.peek || this.holder || this.summoned || !free) return false;
+    if (this.state === 'sleep') return false;
+    this.startHang();
+    return true;
+  }
+
+  private startHang(): void {
+    const [lo, hi] = HANG_MS;
+    // it says something to itself soon after it comes up to the edge (these are short stays), and then only now and then
+    this.hang = { ms: 0, len: (lo + this.rng() * (hi - lo)) / (this.speaker.chatty ? 3 : 1), murmurIn: (1200 + this.rng() * 2500) / (this.speaker.chatty ? 2 : 1) };
+    this.target = null;
+    this.vel = { x: 0, y: 0 };
+    this.enter('hang', true);
+  }
+
+  /** Looks over the edge until its time is up (talking to itself now and then); lets go when the window is gone. */
+  private stepHang(dt: number): void {
+    const h = this.hang;
+    if (!h) {
+      this.settle();
+      return;
+    }
+    if (!this.standingOn()) {
+      // the window went away (or moved off): a pet that walks along a floor falls, one that goes anywhere stays where it is
+      this.hang = null;
+      if (this.cfg.roam === 'floor' && this.pos.y < this.region.floor(this.pos, this.reach()) - 1) this.startFall(0, 0);
+      else {
+        this.leavePerch();
+        this.settle();
+      }
+      return;
+    }
+    h.ms += dt;
+    h.murmurIn -= dt;
+    if (h.murmurIn <= 0) {
+      h.murmurIn = this.nextPeekMurmur();
+      this.say('peek');
+    }
+    if (h.ms >= h.len) {
+      this.hang = null;
+      this.settle();
+      this.decideIn = 1200 + this.rng() * 1200;
+    }
+  }
+
   private nextPeekMurmur(): number {
     const [lo, hi] = PEEK_MURMUR_MS;
     return (lo + this.rng() * (hi - lo)) / (this.speaker.chatty ? 4 : 1);
@@ -455,6 +658,7 @@ export class Pet {
     const pk = this.peek;
     if (!pk) return;
     pk.ms += dt;
+    if (pk.wall.at !== undefined && !this.followSide(pk, dt)) return;
     if (pk.phase === 'go') {
       // up on a window: down to the floor first
       if (this.cfg.roam === 'floor' && !this.standingOn() && this.pos.y < this.region.floor(this.pos, this.reach()) - 1) {
@@ -504,8 +708,9 @@ export class Pet {
   call(): void {
     // someone is dragging it right now; the cursor is busy
     if (this.holder === 'user') return;
-    // out from behind the wall: it is wanted
+    // out from behind the wall, and up from the edge of a window: it is wanted
     if (this.peek) this.cancelPeek();
+    if (this.state === 'hang') this.settle();
     const c = this.cursor;
     if (this.holder === 'cursor' || !c) {
       this.say('call');
@@ -523,8 +728,8 @@ export class Pet {
 
   /** Something happened on the computer: the pet perks up (or is startled) and says so. */
   notice(event: NoticeEvent): void {
-    // a pet that hides keeps hiding, and can only say it
-    if (this.peek) {
+    // a pet that hides (or looks over the edge of a window) keeps at it, and can only say it
+    if (this.peek || this.state === 'hang') {
       this.say(event);
       return;
     }
@@ -560,8 +765,8 @@ export class Pet {
   }
 
   isOver(p: Vec2): boolean {
-    if (this.state === 'peek') {
-      // what shows of a pet that hides is a part of the face and the hands: everything in the box counts
+    if (this.state === 'peek' || this.state === 'hang') {
+      // what shows of a pet that hides, or looks over the edge of a window, is a part of the face and the hands: everything in the box counts
       const r = this.hitbox();
       return p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
     }
@@ -581,7 +786,7 @@ export class Pet {
       return;
     }
     // a pet that hides takes no notice of the pointer until it is clicked
-    if (this.peek) return;
+    if (this.peek || this.state === 'hang') return;
     const over = this.isOver(p);
     if (over && !this.hover) this.onHoverEnter(p);
     this.hover = over;
@@ -639,6 +844,9 @@ export class Pet {
         case 'peek':
           this.stepPeek(dt);
           break;
+        case 'hang':
+          this.stepHang(dt);
+          break;
         default:
           if (this.peek) this.stepPeek(dt);
           else this.stepBehavior(dt);
@@ -651,6 +859,12 @@ export class Pet {
   }
 
   hitbox(): Rect {
+    if (this.state === 'hang') {
+      // what is in view over the edge: as wide as the picture and as high as it rises
+      const l = this.hangLayout();
+      const s = this.cfg.scale;
+      return { x: this.pos.x - l.half * s, y: this.pos.y - l.top * s, w: 2 * l.half * s, h: l.top * s };
+    }
     if (this.state === 'peek' && this.peek) {
       // what is in view at the wall: from the wall out to how far the picture reaches, and as high and low as it goes
       const l = this.layout();
@@ -827,6 +1041,7 @@ export class Pet {
     if (this.decideIn > 0) return;
     if (this.maybeAct()) return;
     if (this.maybeHop()) return;
+    if (this.maybeHang()) return;
     const r = this.rng();
     if (r < 0.55) {
       this.target = this.pickTarget();
@@ -1223,6 +1438,7 @@ export class Pet {
       const before = this.state;
       this.state = s;
       this.stateMs = 0;
+      if (s !== 'hang') this.hang = null;
       if (s === 'held') this.leavePerch();
       if (before !== s && (s === 'sit' || s === 'sleep')) this.say(s);
       // every walk or run starts at the beginning of its step, so a skin's own walk cycle (which also starts
@@ -1294,10 +1510,19 @@ export class Pet {
 
   private onClick(): void {
     if (this.state === 'fall') return;
-    // a click on a pet that hides finds it (and everyone else that hides, which whoever runs the pets sees to)
-    if (this.peek) {
-      this.found = true;
+    // a click on a pet that looks over the edge of a window catches it: it comes up
+    if (this.state === 'hang') {
       this.clicks = [];
+      this.say('found');
+      this.react('happy');
+      return;
+    }
+    // a click on a pet that hides finds it (and everyone else that hides, which whoever runs the pets sees to);
+    // one that hides at the side of a window only finds itself
+    if (this.peek) {
+      this.clicks = [];
+      if (this.peek.wall.at !== undefined) this.unhide(true);
+      else this.found = true;
       return;
     }
     this.clicks = this.clicks.filter((t) => this.time - t < CLICK_WINDOW_MS);
@@ -1315,9 +1540,9 @@ export class Pet {
 
   /** `from` is where the button went down, so the pet stays glued to the point that was grabbed. */
   private startDrag(from: Vec2): void {
-    // picked up from the wall: found, and no longer hiding
+    // picked up from the wall: found, and no longer hiding (one that hid at the side of a window was on its own)
     if (this.peek) {
-      this.found = true;
+      if (this.peek.wall.at === undefined) this.found = true;
       this.cancelPeek();
     }
     this.dragging = true;
@@ -1361,6 +1586,12 @@ export class Pet {
     if (m > max) {
       vx = (vx / m) * max;
       vy = (vy / m) * max;
+    }
+    // let go beside the side of a window (and not thrown at it): it holds on there and hides
+    const hold = m <= this.k(SIDE_MAX_SPEED) ? this.sideNear() : null;
+    if (hold) {
+      this.attach(hold.side, hold.y);
+      return;
     }
     this.startFall(vx * 0.8, vy * 0.8);
     // let go a hair above the floor is not a throw
@@ -1613,7 +1844,8 @@ export class Pet {
         break;
       }
       case 'peek':
-        // the picture is the whole pose: nothing of the engine's squashing, which would pull it away from the wall
+      case 'hang':
+        // the picture is the whole pose: nothing of the engine's squashing, which would pull it away from the wall (or the edge)
         break;
       case 'act': {
         // 'off': the picture moves by itself
@@ -1648,7 +1880,7 @@ export class Pet {
     v.particles = this.particles;
     v.hitbox = this.hitbox();
     v.interactive = this.canInteract();
-    const calm = this.state === 'idle' || this.state === 'sit' || this.state === 'sleep' || (this.state === 'peek' && this.peek?.phase === 'wait' && this.peek.duck === 0);
+    const calm = this.state === 'idle' || this.state === 'sit' || this.state === 'sleep' || this.state === 'hang' || (this.state === 'peek' && this.peek?.phase === 'wait' && this.peek.duck === 0);
     v.animating = this.particles.length > 0 || !calm;
     v.action = this.state === 'act' ? (this.act?.def.pose ?? null) : null;
   }

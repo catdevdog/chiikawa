@@ -20,3 +20,8 @@ export function planHop(from: Vec2, to: Vec2, gravity: number, clearance: number
   const time = up + down;
   return { vx: (to.x - from.x) / time, vy, time };
 }
+
+/** The window a place to stand or a wall belongs to: ids of the pieces of a top edge (`7#1`) and of the sides (`7:L`) start with the window's. */
+export function windowOf(id: string): string {
+  return id.replace(/[#:].*$/, '');
+}

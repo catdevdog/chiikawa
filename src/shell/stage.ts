@@ -1,6 +1,6 @@
 import { Flock, Pet } from '../engine';
 import { nearestSide } from '../engine/peek';
-import type { NoticeEvent, PetView, Platform, Rect, SayEvent, Vec2 } from '../engine/types';
+import type { NoticeEvent, PetView, Platform, Rect, SayEvent, Side, Vec2 } from '../engine/types';
 import { clamp, mulberry32 } from '../engine/vec';
 import { bodyOf, fitTo } from '../shared/body';
 import { MAX_FRIENDS, type Area, type PointerReport, type Settings, type SkinReport, type ViewFrame } from '../shared/types';
@@ -68,6 +68,8 @@ export class Stage {
   private pressed: { win: StageWindow; member: Member } | null = null;
   /** the windows of other programs the pets may stand on (their uncovered top edges) */
   private platforms: readonly Platform[] = [];
+  /** and the left and right edges of those windows, where the pets may hide */
+  private sides: readonly Side[] = [];
   /** put away for a while: nothing moves, nothing is drawn, the mouse goes through */
   private hidden = false;
   private last = Number.NaN;
@@ -185,6 +187,32 @@ export class Stage {
     return this.platforms;
   }
 
+  /** The edges of windows (to hide at) that the pets were told about: none, and a pet that hides at one lets go. */
+  setSides(list: readonly Side[]): void {
+    this.sides = list;
+    for (const m of this.members) m.pet.setSides(list);
+  }
+
+  /** The walls at the side of windows that the pets were told about. For tests and diagnostics. */
+  get sideList(): readonly Side[] {
+    return this.sides;
+  }
+
+  /** The windows that pets are going along with (standing on, looking over the edge of, or hiding at), by id: what is worth watching closely. */
+  get followed(): string[] {
+    return [...new Set(this.members.flatMap((m) => (m.pet.windowId === null ? [] : [m.pet.windowId])))];
+  }
+
+  /** Makes the pets that stand on a window look over its top edge now (the pet of that skin, or all of them); how many did. For tests and diagnostics. */
+  lookOver(id?: string): number {
+    return this.members.filter((m) => (id === undefined || m.id === id) && m.pet.lookOver()).length;
+  }
+
+  /** The wall each pet hides at the side of (null: it does not hide at a window), by skin id. For tests and diagnostics. */
+  get attachments(): { id: string; at: string | null }[] {
+    return this.members.map((m) => ({ id: m.id, at: m.pet.attached ? m.pet.windowId : null }));
+  }
+
   /** The window each pet stands on right now (null: none), by skin id. For tests and diagnostics. */
   get perches(): { id: string; on: string | null }[] {
     return this.members.map((m) => ({ id: m.id, on: m.pet.perched }));
@@ -292,7 +320,8 @@ export class Stage {
 
   private peekAll(origin: Member): boolean {
     const areas = [...this.windows.keys()].map((w) => rectOf(w.area));
-    const hiders = this.members.filter((m) => m.pet.mode !== 'attach');
+    // a pet that hides at the side of a window stays there: it is not out
+    const hiders = this.members.filter((m) => m.pet.mode !== 'attach' && !m.pet.attached);
     if (areas.length === 0 || hiders.length === 0) return false;
     // the wall is the outer edge of all the screens, on the side the clicked pet is nearer to
     const x0 = Math.min(...areas.map((r) => r.x));
@@ -423,7 +452,7 @@ export class Stage {
       mode: standing ? 'wander' : s.mode,
       rng: this.deps.rng ?? mulberry32(Date.now() + this.members.length * 7919 + (standing?.length ?? 0) * 104729),
       x: standing ? this.startX(first, standing) : undefined,
-      config: { scale: s.scale, roam: s.roam, sprite: skin.box, hitbox: skin.hitbox, peek: skin.peek },
+      config: { scale: s.scale, roam: s.roam, sprite: skin.box, hitbox: skin.hitbox, peek: skin.peek, hang: skin.hang },
     });
     const m: Member = { id, pet, skin, from: null, v: { x: 0, y: 0 }, sent: { state: '', facing: 0, interactive: false, scale: 0, particles: 0 }, sentAt: -Infinity };
     pet.setSpeech(s.speech);
@@ -432,13 +461,14 @@ export class Stage {
     pet.setActions(skin.actions);
     pet.setInteractive(!s.clickThrough);
     pet.setPlatforms(this.platforms);
+    pet.setSides(this.sides);
     return m;
   }
 
   /** The pet wears this skin (its size, its words and its actions). */
   private dress(m: Member, skin: SkinReport): void {
     m.skin = skin;
-    m.pet.setSprite(skin.box, skin.hitbox, skin.peek);
+    m.pet.setSprite(skin.box, skin.hitbox, skin.peek, skin.hang);
     m.pet.setLines(skin.lines);
     m.pet.setActions(skin.actions);
   }

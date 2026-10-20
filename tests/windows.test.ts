@@ -260,6 +260,21 @@ describe('the windows of the system', () => {
     expect(createWin32Lister(koffi, 1000)().map((w) => w.id)).toEqual(['2']);
   });
 
+  it('can look at just some of the windows, by id, the same way', () => {
+    const { koffi } = fakeKoffi([
+      { h: 100, title: 'Browser', rect: frame(92, 92, 908, 708), frame: frame(100, 100, 900, 700) },
+      { h: 200, title: 'Notepad', rect: frame(300, 300, 700, 600), frame: frame(300, 300, 700, 600) },
+      { h: 300, title: 'minimized', minimized: true, rect: frame(0, 0, 500, 400) },
+      { h: 400, title: 'broken', broken: true, rect: frame(0, 0, 500, 400) },
+    ]);
+    const lister = createWin32Lister(koffi, 1000);
+    expect(lister.frames(['200'])).toEqual([{ id: '200', left: 300, top: 300, right: 700, bottom: 600, title: 'Notepad' }]);
+    expect(lister.frames(['200', '100']).map((w) => w.id)).toEqual(['200', '100']);
+    // a window that is gone (or put away, or went wrong while it was looked at), and what is not an id of a window, are left out
+    expect(lister.frames(['999', '300', '400', 'x', '0', '-5', '1.5', ''])).toEqual([]);
+    expect(lister.frames([])).toEqual([]);
+  });
+
   it('declares the functions it uses with the types the system expects', () => {
     const { koffi, declared } = fakeKoffi([]);
     createWin32Lister(koffi, 1000);

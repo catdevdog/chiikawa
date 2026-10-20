@@ -25,7 +25,8 @@
     "held": "held.svg",
     "wave": "wave.svg",
     "snack": "snack.svg",
-    "peek": "peek.svg"
+    "peek": "peek.svg",
+    "hang": "hang.svg"
   },
   "textColor": "#3f8f4a",
   "lines": {

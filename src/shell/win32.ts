@@ -26,7 +26,7 @@ const wide = (buf: Buffer, n: number): string => buf.toString('utf16le', 0, Math
  * Opening the libraries and declaring the functions happens once, here; the returned function is what to call
  * every time.
  */
-export function createWin32Lister(koffi: Koffi, ownPid: number): () => RawWindow[] {
+export function createWin32Lister(koffi: Koffi, ownPid: number): (() => RawWindow[]) & { frames(ids: string[]): RawWindow[] } {
   const user32 = koffi.load('user32.dll');
   const dwmapi = koffi.load('dwmapi.dll');
   koffi.struct('RECT', { left: 'int32_t', top: 'int32_t', right: 'int32_t', bottom: 'int32_t' });
@@ -74,7 +74,7 @@ export function createWin32Lister(koffi: Koffi, ownPid: number): () => RawWindow
     return { id: String(hwnd), left, top, right, bottom, title };
   };
 
-  return () => {
+  const list = (): RawWindow[] => {
     const found: RawWindow[] = [];
     enumWindows((hwnd: number): boolean => {
       try {
@@ -87,6 +87,22 @@ export function createWin32Lister(koffi: Koffi, ownPid: number): () => RawWindow
     }, 0);
     return found;
   };
+  /** Just these windows (by id), looked at the same way: the ones a pet goes along with, which are read often. A window that is gone, or no longer one to stand on, is not in the answer. */
+  const frames = (ids: string[]): RawWindow[] => {
+    const found: RawWindow[] = [];
+    for (const id of ids) {
+      const hwnd = Number(id);
+      if (!Number.isSafeInteger(hwnd) || hwnd === 0) continue;
+      try {
+        const w = inspect(hwnd);
+        if (w) found.push(w);
+      } catch {
+        // gone while it was looked at
+      }
+    }
+    return found;
+  };
+  return Object.assign(list, { frames });
 }
 
 /**
@@ -97,7 +113,8 @@ export function openWin32Source(ownPid: number, toDip: (r: Rect) => Rect, warn: 
   if (process.platform !== 'win32') return null;
   try {
     const koffi = require('koffi') as Koffi;
-    return { list: createWin32Lister(koffi, ownPid), toDip };
+    const list = createWin32Lister(koffi, ownPid);
+    return { list, frames: list.frames, toDip };
   } catch (err) {
     warn(`windows to sit on are not available: ${err instanceof Error ? err.message : String(err)}`);
     return null;

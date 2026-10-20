@@ -1,5 +1,5 @@
 import { parseActions } from '../engine/actions';
-import type { PeekLayout } from '../engine/peek';
+import type { HangLayout, PeekLayout } from '../engine/peek';
 import { parseLines } from '../engine/speech';
 import { isSkinId } from './ids';
 import type { Battery } from './power';
@@ -14,7 +14,7 @@ const within = (v: unknown, lo: number, hi: number): number | null => (finite(v)
  */
 export function parseSkinReport(raw: unknown): SkinReport | null {
   if (!raw || typeof raw !== 'object') return null;
-  const { id, box, hitbox, body, peek, lines, actions } = raw as Record<string, any>;
+  const { id, box, hitbox, body, peek, hang, lines, actions } = raw as Record<string, any>;
   if (!isSkinId(id) || !box || typeof box !== 'object' || !hitbox || typeof hitbox !== 'object') return null;
   const nums = [
     within(box.w, 16, 1024),
@@ -40,7 +40,18 @@ export function parseSkinReport(raw: unknown): SkinReport | null {
   if (looks !== null) report.body = looks;
   const layout = parsePeek(peek);
   if (layout) report.peek = layout;
+  const over = parseHang(hang);
+  if (over) report.hang = over;
   return report;
+}
+
+/** How a skin's own picture for looking over the top of a window stands on the edge: both numbers, or none. */
+function parseHang(raw: unknown): HangLayout | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const { half, top } = raw as Record<string, unknown>;
+  const h = within(half, 4, 2048);
+  const t = within(top, 4, 2048);
+  return h === null || t === null ? null : { half: h, top: t };
 }
 
 /** How a skin's own picture for hiding meets the wall: all four numbers, or none (the pet then leans its ordinary picture). */

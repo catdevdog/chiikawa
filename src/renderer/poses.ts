@@ -13,6 +13,7 @@ const FALLBACKS: Record<PetState, string[]> = {
   surprised: ['surprised', 'idle'],
   happy: ['happy', 'idle'],
   peek: ['peek', 'idle'],
+  hang: ['hang', 'idle'],
   // an action names its own pose; this is only for one the skin has lost
   act: ['idle'],
 };

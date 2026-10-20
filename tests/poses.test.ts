@@ -30,8 +30,14 @@ describe('resolvePose', () => {
     expect(resolvePose('peek', has('idle', 'sleep'), { peek: 'sleep' })).toBe('sleep');
   });
 
+  it('uses the picture for looking over the edge of a window when the skin has one, and the ordinary picture when it has not', () => {
+    expect(resolvePose('hang', has('idle', 'hang'))).toBe('hang');
+    expect(resolvePose('hang', has('idle', 'peek'))).toBe('idle');
+    expect(resolvePose('hang', has('idle', 'sleep'), { hang: 'sleep' })).toBe('sleep');
+  });
+
   it('always resolves every state when idle exists', () => {
-    const states: PetState[] = ['idle', 'walk', 'run', 'sit', 'sleep', 'held', 'fall', 'land', 'surprised', 'happy', 'peek'];
+    const states: PetState[] = ['idle', 'walk', 'run', 'sit', 'sleep', 'held', 'fall', 'land', 'surprised', 'happy', 'peek', 'hang'];
     for (const s of states) expect(resolvePose(s, has('idle'))).toBe('idle');
   });
 });

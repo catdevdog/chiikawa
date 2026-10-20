@@ -49,8 +49,8 @@ describe('sanitizeSettings', () => {
   });
 
   it('keeps valid values and clamps the scale', () => {
-    const s = sanitizeSettings({ mode: 'attach', roam: 'floor', skin: 'my-skin', scale: 99, clickThrough: true, autoStart: true, autoUpdate: false, monitor: '2528732444', speech: 'reactions', tricks: false, friends: ['usagi', 'rakko'], perch: true });
-    expect(s).toEqual({ mode: 'attach', roam: 'floor', skin: 'my-skin', scale: 4, clickThrough: true, autoStart: true, autoUpdate: false, monitor: '2528732444', speech: 'reactions', tricks: false, friends: ['usagi', 'rakko'], perch: true });
+    const s = sanitizeSettings({ mode: 'attach', roam: 'floor', skin: 'my-skin', scale: 99, clickThrough: true, autoStart: true, autoUpdate: false, monitor: '2528732444', speech: 'reactions', tricks: false, friends: ['usagi', 'rakko'], windows: false });
+    expect(s).toEqual({ mode: 'attach', roam: 'floor', skin: 'my-skin', scale: 4, clickThrough: true, autoStart: true, autoUpdate: false, monitor: '2528732444', speech: 'reactions', tricks: false, friends: ['usagi', 'rakko'], windows: false });
     expect(sanitizeSettings({ scale: 0.01 }).scale).toBe(0.25);
   });
 
@@ -68,11 +68,14 @@ describe('sanitizeSettings', () => {
     for (const tricks of ['no', 0, null, [], {}]) expect(sanitizeSettings({ tricks }).tricks).toBe(true);
   });
 
-  it('does not sit on windows unless that was switched on', () => {
-    expect(sanitizeSettings({}).perch).toBe(false);
-    expect(sanitizeSettings({ perch: true }).perch).toBe(true);
-    // anything but a plain yes is a no
-    for (const perch of [false, 'yes', 1, null, [], {}]) expect(sanitizeSettings({ perch }).perch).toBe(false);
+  it('goes about the windows of other programs unless that was switched off', () => {
+    expect(sanitizeSettings({}).windows).toBe(true);
+    expect(sanitizeSettings({ windows: false }).windows).toBe(false);
+    expect(sanitizeSettings({ windows: true }).windows).toBe(true);
+    // anything else is not a choice; the default (on) applies
+    for (const windows of ['no', 0, null, [], {}]) expect(sanitizeSettings({ windows }).windows).toBe(true);
+    // the setting of the version that had this as an experiment (off unless asked for) is not carried over
+    expect(sanitizeSettings({ perch: false }).windows).toBe(true);
   });
 
   it('keeps a list of friends that are skins, each once, without the main character, up to the limit', () => {
@@ -119,6 +122,15 @@ describe('what an overlay may report', () => {
     expect(parseSkinReport({ ...report, peek: { ...peek, reach: 1e6 } })!.peek!.reach).toBe(2048);
     for (const bad of [undefined, null, 5, 'x', {}, { ...peek, edge: 'a' }, { edge: 1, reach: 1, top: 1 }, { ...peek, top: Number.NaN }]) {
       expect(parseSkinReport({ ...report, peek: bad }), JSON.stringify(bad)).not.toHaveProperty('peek');
+    }
+  });
+
+  it('carries how the skin\'s picture for looking over the edge of a window stands on it: both numbers, or none', () => {
+    const hang = { half: 61, top: 84 };
+    expect(parseSkinReport({ ...report, hang })!.hang).toEqual(hang);
+    expect(parseSkinReport({ ...report, hang: { ...hang, top: 1e6 } })!.hang!.top).toBe(2048);
+    for (const bad of [undefined, null, 5, 'x', {}, { half: 1 }, { ...hang, half: 'a' }, { ...hang, top: Number.NaN }]) {
+      expect(parseSkinReport({ ...report, hang: bad }), JSON.stringify(bad)).not.toHaveProperty('hang');
     }
   });
 

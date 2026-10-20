@@ -1,29 +1,42 @@
 #!/usr/bin/env python3
 """
-Makes the picture a skin hides with ("peek"): the head of the character, tilted towards the wall and cut by it, with
-two hands holding the edge. It is made from the skin's own idle pictures (the same frames, so the blinking goes on),
-which is how the pictures of the bundled skins were made:
+Makes the two pictures a skin hides with, from the skin's own idle pictures (the same frames, so the blinking goes on):
 
     python3 scripts/make-peek.py            # every skin below
     python3 scripts/make-peek.py usagi      # one skin
 
-It writes skins/<id>/peek.png (a sheet with a frame for every frame of "idle") and puts "poses.peek" in the skin's
-manifest.json. Needs Pillow. The numbers below were found by looking at the pictures, so they fit these skins; a
-new skin needs its own: the ellipse that holds the head (centre x, centre y, radius x, radius y, in pixels of one
-frame), the colours of the outline and of the hands, how much the head tilts and how much of it stays in view.
+  skins/<id>/peek.png  hiding behind a wall: the pet leans out, the face turned away from the wall, two small round hands on its edge
+  skins/<id>/hang.png  looking over the top edge of a window: the head down to just under the mouth, two small round hands on the edge
 
-Sprout (skins/default/peek.svg) is drawn by hand, as a vector picture, with the wall on the left because its
-art faces right. The wall is the right border of the picture here (the art of the skins below faces left). A skin whose art faces right has its
-wall on the left: draw it, or mirror the frames before and after.
+Each is a sheet with a frame for every frame of "idle", and "poses.peek" and "poses.hang" are put in the skin's
+manifest.json. Needs Pillow and numpy. The drawing steps are in scripts/peek_art.py, which says what each does.
+
+The numbers below were found by looking at the pictures, so they fit these skins; a new skin needs its own:
+  prepare   takes off what would stick out from the face once the picture is turned (the arm on the side of the face
+            that leans out), and draws the outline across where it was. The rows and columns are where that arm is.
+  peek      face: the middle of the face (the picture is turned about it); tilt: how far, in degrees; wall_dx: how far
+            from the middle of the face the wall is (enough for the mouth to be in view); bottom: the row where the body
+            in view ends; hands: the middles of the two hands, how far from the wall and which row; hand_r, hand_w:
+            the inside of a hand and its outline
+  hang      cut: the row of the idle picture just under the mouth; face_x: the middle of the face; hands_dx: how far each
+            hand is from it
+  The ink is the colour of the outlines, hand the colour of the hands (the colour of the body, unless the hands are
+  drawn another colour).
+
+Sprout (skins/default) is drawn as a vector picture by hand, with the wall on the left because its art faces right:
+skins/default/peek.svg and skins/default/hang.svg. The wall is the right border of the pictures made here (the art of
+the skins below faces left); a skin whose art faces right has its wall on the left: mirror its frames before and after.
 """
 import json
 import sys
 from pathlib import Path
 
-from PIL import Image, ImageChops, ImageDraw, ImageFilter
+from PIL import Image
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import peek_art as pa  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
-SS = 4  # everything that is drawn or rotated is done at this many times the size, and then made small again
 
 
 def load_frames(skin, pose='idle'):
@@ -37,113 +50,49 @@ def load_frames(skin, pose='idle'):
     return frames, durations if isinstance(durations, list) else [durations] * count
 
 
-def big(im):
-    return im.resize((im.width * SS, im.height * SS), Image.LANCZOS)
+USAGI_INK = (6, 5, 10)
+USAGI_BODY = (253, 238, 204)
 
 
-def head_only(frame, ellipse, outline, width):
-    """What is above the middle of the ellipse and inside it; the chin is drawn where the body was."""
-    cx, cy, rx, ry = ellipse
-    f = big(frame)
-    w, h = f.size
-    keep = Image.new('L', (w, h), 0)
-    d = ImageDraw.Draw(keep)
-    d.rectangle([0, 0, w, int(cy * SS)], fill=255)
-    d.ellipse([(cx - rx) * SS, (cy - ry) * SS, (cx + rx) * SS, (cy + ry) * SS], fill=255)
-    alpha = ImageChops.multiply(f.getchannel('A'), keep)
-    # a line along the lower edge of the ellipse, but only where there was body to draw it on
-    stroke = Image.new('L', (w, h), 0)
-    ImageDraw.Draw(stroke).arc([(cx - rx) * SS, (cy - ry) * SS, (cx + rx) * SS, (cy + ry) * SS], 0, 180, fill=255, width=int(width * SS))
-    stroke = ImageChops.multiply(stroke, f.getchannel('A').filter(ImageFilter.MaxFilter(int(width * SS) | 1)))
-    out = f.copy()
-    out.putalpha(alpha)
-    ink = Image.new('RGBA', (w, h), outline + (255,))
-    ink.putalpha(stroke)
-    return Image.alpha_composite(out, ink)
+def usagi_prepare(img):
+    # the left arm is a hook that the outline of the body runs into: the outline goes straight across instead
+    return pa.bridge(img, rows=(170.0, 192.5), x_span=(30, 92), ink=USAGI_INK, fill=USAGI_BODY, outside='left')
 
-
-def hand(finger, reach, fill, outline, width, crease):
-    """Three fingertips curled over the edge, drawn so that the wall (the right border of the picture) cuts them in the middle."""
-    r = finger
-    pad = 6 * SS
-    gap = r * 1.5
-    h = int((gap * 2 + r * 2) * SS)
-    w = int(reach * SS)
-    im = Image.new('RGBA', (w + 2 * pad, h + 2 * pad), (0, 0, 0, 0))
-    d = ImageDraw.Draw(im)
-    iw = int(width * SS)
-    cy0 = pad + h / 2
-    right = pad + w
-    ys = [cy0 + k * gap * SS for k in (-1, 0, 1)]
-    # the outline first and the fill on top of it: where two fingers touch they become one
-    for y in ys:
-        d.ellipse([right - reach * SS - iw, y - r * SS - iw, right + reach * SS * 0.2 + iw, y + r * SS + iw], fill=outline + (255,))
-    for y in ys:
-        d.ellipse([right - reach * SS, y - r * SS, right + reach * SS * 0.2, y + r * SS], fill=fill + (255,))
-    for k in (-0.5, 0.5):
-        y = cy0 + k * gap * SS
-        d.line([(right - reach * SS * 0.95, y), (right - reach * SS * 0.5, y)], fill=(crease or outline) + (255,), width=max(2, int(width * SS * 0.6)))
-    return im
-
-
-def chiikawa_without_lollipop(frame):
-    """Takes the lollipop out of the mouth: the plain face of the fall pose lends its mouth."""
-    plain = load_frames('chiikawa', 'fall')[0][0]
-    f = frame.copy()
-    ImageDraw.Draw(f).rectangle([128, 150, 186, 206], fill=(255, 255, 255, 255))
-    f.alpha_composite(plain.crop((144, 150, 184, 178)), (144, 150 + 16))
-    return f
-
-
-TWO_HANDS = [dict(y=0.22), dict(y=0.84)]
 
 SKINS = {
-    'usagi': dict(ellipse=(118, 142, 80, 52), outline=(6, 5, 10), fill=(253, 238, 204), width=5, tilt=16, shown=0.78, finger=9, reach=20),
-    'chiikawa': dict(ellipse=(160, 125, 92, 66), outline=(1, 1, 1), fill=(254, 254, 254), width=5, tilt=16, shown=0.78, finger=9, reach=20, prepare=chiikawa_without_lollipop),
-    'hachiware': dict(ellipse=(153, 168, 118, 70), outline=(6, 5, 12), fill=(253, 253, 251), width=6, tilt=16, shown=0.78, finger=10, reach=22),
-    # Rakko's hands are dark in the pictures
-    'rakko': dict(ellipse=(160, 150, 150, 70), outline=(34, 19, 17), fill=(250, 241, 219), width=5, tilt=14, shown=0.78, finger=10, reach=22,
-                  hands=dict(fill=(52, 34, 31), outline=(34, 19, 17), crease=(120, 96, 90))),
+    'usagi': dict(
+        ink=USAGI_INK,
+        hand=USAGI_BODY,
+        prepare=usagi_prepare,
+        peek=dict(face=(112, 128), tilt=60, wall_dx=23, bottom=204, hands=[(2, 176), (2, 206)], hand_r=10, hand_w=4),
+        hang=dict(cut=166, face_x=118, hands_dx=62, hand_r=10, hand_w=4),
+    ),
 }
 
 
 def make(skin, cfg):
     frames, durations = load_frames(skin)
-    if cfg.get('prepare'):
-        frames = [cfg['prepare'](f) for f in frames]
     W, H = frames[0].size
-    feet_line = frames[0].getchannel('A').point(lambda a: 255 if a > 40 else 0).getbbox()[3]
-    hands = cfg.get('hands', {})
-    placed = None
-    result = []
-    for frame in frames:
-        head = head_only(frame, cfg['ellipse'], cfg['outline'], cfg['width'])
-        cx, cy = cfg['ellipse'][0], cfg['ellipse'][1] - cfg['ellipse'][3] * 0.3
-        head = head.rotate(-cfg['tilt'], resample=Image.BICUBIC, center=(cx * SS, cy * SS))
-        if placed is None:
-            # the first frame decides where the head goes, the same for all of them (nothing jumps when ears move)
-            x0, y0, x1, y1 = [v / SS for v in head.getchannel('A').point(lambda a: 255 if a > 40 else 0).getbbox()]
-            placed = (W - (x0 + cfg['shown'] * (x1 - x0)), feet_line - y1, y0, y1)
-        dx, dy, y0, y1 = placed
-        canvas = Image.new('RGBA', (W * SS, H * SS), (0, 0, 0, 0))
-        canvas.alpha_composite(head, (int(dx * SS), int(dy * SS)))
-        for spot in TWO_HANDS:
-            im = hand(cfg['finger'], cfg['reach'], hands.get('fill', cfg['fill']), hands.get('outline', cfg['outline']), cfg['width'], hands.get('crease'))
-            canvas.alpha_composite(im, (int(W * SS - im.width + 6 * SS), int((y0 + dy + spot['y'] * (y1 - y0)) * SS - im.height / 2)))
-        # nothing beyond the wall
-        wall = Image.new('L', canvas.size, 0)
-        ImageDraw.Draw(wall).rectangle([0, 0, W * SS, H * SS], fill=255)
-        canvas.putalpha(ImageChops.multiply(canvas.getchannel('A'), wall))
-        result.append(canvas.resize((W, H), Image.LANCZOS))
-    sheet = Image.new('RGBA', (W * len(result), H), (0, 0, 0, 0))
-    for i, f in enumerate(result):
-        sheet.paste(f, (i * W, 0))
-    sheet.save(ROOT / 'skins' / skin / 'peek.png', optimize=True)
     path = ROOT / 'skins' / skin / 'manifest.json'
     manifest = json.loads(path.read_text(encoding='utf-8'))
-    manifest['poses']['peek'] = dict(sheet='peek.png', frameWidth=W, frameHeight=H, count=len(result), durations=durations)
+    feet = round(manifest['anchor']['y'] * H)
+    bigs = [pa.big(f) for f in frames]
+    if cfg.get('prepare'):
+        bigs = [cfg['prepare'](b) for b in bigs]
+    ink, hand = cfg['ink'], cfg['hand']
+    pictures = {
+        'peek': pa.peek_frames(bigs, (W, H), hand_fill=hand, ink=ink, **cfg['peek']),
+        'hang': pa.hang_frames(bigs, (W, H), feet=feet, hand_fill=hand, ink=ink, **cfg['hang']),
+    }
+    for pose, result in pictures.items():
+        top, bottom, left = pa.extent(result)
+        # something touching the border of the picture (other than the wall) is cut off by it
+        if top < 2 or bottom > H - 2 or (pose == 'peek' and left < 2):
+            print(f'  warning: the {pose} picture of {skin} reaches the border (top {top}, bottom {bottom}, left {left})')
+        pa.sheet_of(result).save(ROOT / 'skins' / skin / f'{pose}.png', optimize=True)
+        manifest['poses'][pose] = dict(sheet=f'{pose}.png', frameWidth=W, frameHeight=H, count=len(result), durations=durations)
     path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-    print(f'{skin}: {len(result)} frames of {W}x{H}')
+    print(f'{skin}: {len(frames)} frames of {W}x{H}')
 
 
 if __name__ == '__main__':

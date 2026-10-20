@@ -1,5 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
-<g transform="translate(-38 7) rotate(-16 64 88)">
+<!-- the wall is the left border of the picture (this art faces right): the head is turned away from it, clockwise, and the wall cuts the picture -->
+<g transform="translate(-47.5 0) rotate(60 64 75)">
   <path d="M64 42 C64 34 63 27 64 21" fill="none" stroke="#4C9A62" stroke-width="3" stroke-linecap="round"/>
   <g transform="rotate(0 64 23)">
     <path d="M64 24 C50 8 30 14 32 28 C42 34 58 34 64 24 Z" fill="#9BDDA8" stroke="#4C9A62" stroke-width="2.2" stroke-linejoin="round"/>
@@ -15,18 +16,11 @@
   <ellipse cx="39" cy="87" rx="7" ry="4.2" fill="#FF9FA8" opacity="0.75"/>
   <ellipse cx="89" cy="87" rx="7" ry="4.2" fill="#FF9FA8" opacity="0.75"/>
   <ellipse cx="50" cy="75" rx="4.6" ry="6.4" fill="#3A2E2A"/><circle cx="48.6" cy="72.2" r="1.8" fill="#fff"/>
-  <ellipse cx="78" cy="75" rx="4.6" ry="6.4" fill="#3A2E2A"/><circle cx="76.6" cy="72.2" r="1.8" fill="#fff"/>
-  <path d="M59 86 Q64 91.5 69 86" fill="none" stroke="#3A2E2A" stroke-width="2.4" stroke-linecap="round"/>
+  <ellipse cx="78" cy="75" rx="4.6" ry="6.4" fill="#3A2E2A"/><circle cx="76.6" cy="72.2" r="1.8" fill="#fff"/><path d="M59 86 Q64 91.5 69 86" fill="none" stroke="#3A2E2A" stroke-width="2.4" stroke-linecap="round"/>
 </g>
-<!-- the hands on the edge: three fingertips curled over it, twice -->
-<g id="hand-top">
-  <g fill="#C99A3B">
-    <ellipse cx="0" cy="40" rx="13.5" ry="7.7"/><ellipse cx="0" cy="49" rx="13.5" ry="7.7"/><ellipse cx="0" cy="58" rx="13.5" ry="7.7"/>
-  </g>
-  <g fill="#FFE9A6">
-    <ellipse cx="0" cy="40" rx="11" ry="5.2"/><ellipse cx="0" cy="49" rx="11" ry="5.2"/><ellipse cx="0" cy="58" rx="11" ry="5.2"/>
-  </g>
-  <path d="M1.5 44.5 H8.5 M1.5 53.5 H8.5" stroke="#C99A3B" stroke-width="1.5" stroke-linecap="round"/>
+<!-- two small round hands on the edge of the wall, one above the other: the lower one lies on the line where the head meets the wall -->
+<g fill="#FFE9A6" stroke="#C99A3B" stroke-width="2.5">
+  <circle cx="2" cy="98.5" r="6.25"/>
+  <circle cx="2" cy="114.5" r="6.25"/>
 </g>
-<use href="#hand-top" transform="translate(0 60)"/>
 </svg>
