@@ -12,6 +12,8 @@ Two pictures are made from a skin's own "idle" frames (the same frames, so the b
 
 Everything that is drawn or turned is done SS times as big, and made small again after.
 """
+import math
+
 import numpy as np
 from PIL import Image, ImageDraw
 
@@ -62,14 +64,16 @@ def _hermite(y, y0, c0, s0, y1, c1, s1):
     return (2 * t**3 - 3 * t**2 + 1) * c0 + (t**3 - 2 * t**2 + t) * h * s0 + (-2 * t**3 + 3 * t**2) * c1 + (t**3 - t**2) * h * s1
 
 
-def bridge(img, rows, x_span, ink, fill, outside='left', keep_rows=3.0, window=5):
+def bridge(img, rows, x_span, ink, fill, outside='left', keep_rows=3.0, window=5, bump=0.0):
     """
     Draws an outline that runs roughly up and down straight across the rows `rows` = (y0, y1) (pixels of the frame), where
     an arm or a foot interrupts it, and takes the arm off: in those rows, within the columns `x_span`, the picture is made
     again from one stroke that has the position and direction of the real stroke where the rows begin and end, and its
     look (width, softness). `outside` is the side of the stroke that is empty ('left' or 'right'); the other side is
     the body, `fill` (a colour). `img` is a frame made SS times as big. Choose rows that start and end where the outline is
-    clean: the arm and its hook are between them.
+    clean: the arm and its hook are between them. `bump`: how far (in pixels of the frame) the middle of the new stroke is
+    drawn in towards the body, so that it dips between the two ends like the neck between a head and a body (the ends
+    stay where they are; 0 is straight, as the outline would be if nothing was between the rows).
     """
     arr = np.asarray(img).copy()
     ink = np.array(ink, dtype=np.float64)
@@ -90,6 +94,8 @@ def bridge(img, rows, x_span, ink, fill, outside='left', keep_rows=3.0, window=5
         t = min(1.0, max(0.0, (y - ya) / (yb - ya)))
         prof = (1 - t) * pa + t * pb
         centre = _hermite(y, ya, ca, sa, yb, cb, sb) * SS
+        # drawn in towards the body (to the right when the outside is on the left), most in the middle
+        centre += (1 if outside == 'left' else -1) * bump * SS * math.sin(math.pi * t)
         cov = np.interp(xs - centre, offs, prof, left=0, right=0)
         row = np.zeros((arr.shape[1], 4), dtype=np.float64)
         out = xs < centre if outside == 'left' else xs >= centre

@@ -15,6 +15,7 @@ manifest.json. Needs Pillow and numpy. The drawing steps are in scripts/peek_art
 The numbers below were found by looking at the pictures, so they fit these skins; a new skin needs its own:
   prepare   takes off what would stick out from the face once the picture is turned (the arm on the side of the face
             that leans out), and draws the outline across where it was. The rows and columns are where that arm is.
+            peek_prepare is the same for the picture that hides alone, when it wants another stroke there.
   peek      face: the middle of the face (the picture is turned about it); tilt: how far, in degrees; wall_dx: how far
             from the middle of the face the wall is (enough for the mouth to be in view); bottom: the row where the body
             in view ends; hands: the middles of the two hands, how far from the wall and which row (the upper one at the
@@ -73,6 +74,14 @@ def hachiware_prepare(img):
     # are long on purpose: the head outline above and the body outline below are both clean there, and with these ends
     # the new stroke runs straight (the same slope at both ends, a width of 8 px to 7 px) with no bend.
     return pa.bridge(img, rows=(205.0, 266.0), x_span=(28, 90), ink=HACHIWARE_INK, fill=HACHIWARE_BODY, outside='left')
+
+
+def hachiware_peek_prepare(img):
+    # The same, for the picture that hides. Drawn dead straight, the stroke became (once the picture is turned) a long flat
+    # line under the face that looked nothing like a chin; `bump` draws its middle 10 px in towards the body, so that the head
+    # has a round jaw with a dip under it, as the head has over the body in the picture itself. (The picture that hangs over a
+    # window keeps the straight stroke: its cut is just under the mouth, and the hands sit on the outline as it is.)
+    return pa.bridge(img, rows=(205.0, 266.0), x_span=(28, 90), ink=HACHIWARE_INK, fill=HACHIWARE_BODY, outside='left', bump=10)
 
 
 # Chiikawa. The idle picture holds a lollipop (a swirl in front of the mouth and belly, held with the left arm), and neither
@@ -185,11 +194,12 @@ SKINS = {
         ink=HACHIWARE_INK,
         hand=HACHIWARE_BODY,
         prepare=hachiware_prepare,
+        peek_prepare=hachiware_peek_prepare,
         # face: the middle of the eyes (at (114, 162) and (186, 168)); wall_dx: the rightmost pixel of the mouth (the little
         # dash under it included) is 40.8 to the right of the face, and the wall is 2 more; bottom: the row where the lower outline
         # of the head meets the wall, the lower hand is 2 px under it; the outline comes to the wall at the top at row 38, and
         # the upper hand is 3 px above that (as far from the outline as the lower one is)
-        peek=dict(face=(150, 165), tilt=60, wall_dx=43, bottom=277, hands=[(2, 35), (2, 279)], hand_r=17, hand_w=6),
+        peek=dict(face=(150, 165), tilt=60, wall_dx=43, bottom=277, hands=[(2, 35), (2, 278)], hand_r=17, hand_w=6),
         # cut: 16 px under the last row of the mouth (212); hands_dx: the head is 207 px wide at the cut (from x 47 to 254)
         hang=dict(cut=229, face_x=150, hands_dx=86, hand_r=17, hand_w=6),
     ),
@@ -228,12 +238,15 @@ def make(skin, cfg):
     manifest = json.loads(path.read_text(encoding='utf-8'))
     feet = round(manifest['anchor']['y'] * H)
     bigs = [pa.big(f) for f in frames]
-    if cfg.get('prepare'):
-        bigs = [cfg['prepare'](b) for b in bigs]
+    prepare = cfg.get('prepare')
+    hang_bigs = [prepare(b) for b in bigs] if prepare else bigs
+    # the picture that hides may be prepared another way (a skin whose outline wants a different stroke there)
+    peek_prepare = cfg.get('peek_prepare', prepare)
+    peek_bigs = [peek_prepare(b) for b in bigs] if peek_prepare else bigs
     ink, hand = cfg['ink'], cfg['hand']
     pictures = {
-        'peek': pa.peek_frames(bigs, (W, H), hand_fill=cfg.get('peek_hand', hand), ink=ink, **cfg['peek']),
-        'hang': pa.hang_frames(bigs, (W, H), feet=feet, hand_fill=hand, ink=ink, **cfg['hang']),
+        'peek': pa.peek_frames(peek_bigs, (W, H), hand_fill=cfg.get('peek_hand', hand), ink=ink, **cfg['peek']),
+        'hang': pa.hang_frames(hang_bigs, (W, H), feet=feet, hand_fill=hand, ink=ink, **cfg['hang']),
     }
     for pose, result in pictures.items():
         top, bottom, left = pa.extent(result)
