@@ -68,7 +68,9 @@ const SC_RESTORE = 0xf120;
 const SWP_NOSIZE = 0x1;
 const SWP_NOZORDER = 0x4;
 const SWP_NOACTIVATE = 0x10;
-const move = (x, y) => setCursorPos(Math.round(x), Math.round(y));
+// the app's coordinates are those of the screen scaled (`k` times as many pixels as it counts); the mouse and the windows are in pixels
+const k = setup === 'scaled' ? 1.5 : 1;
+const move = (x, y) => setCursorPos(Math.round(x * k), Math.round(y * k));
 const down = () => mouseEvent(0x2, 0, 0, 0, 0);
 const up = () => mouseEvent(0x4, 0, 0, 0, 0);
 
@@ -145,14 +147,18 @@ try {
   await sleep(800);
 
   // the window moves: the pet goes with it (it is the edge of the picture at the wall that stays where the window's edge is: the pet
-  // itself ducks back and forth along the way)
+  // itself ducks back and forth along the way). The window is put 60 and 30 pixels on; what it really moved is what the system says
+  // afterwards (the frame that is drawn is not the one that is moved: the system adds an invisible border at the sides and the bottom)
   const edge = (v) => v.hitbox.x + v.hitbox.w;
   const before = await view();
+  const was = lister().find((w) => w.id === wid);
   setWindowPos(Number(wid), 0, form.left + 60, form.top + 30, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
   await sleep(500);
   const after = await view();
-  say(`the window moved by 60,30: the wall of the pet moved by ${Math.round(edge(after) - edge(before))},${Math.round(after.y - before.y)}`);
-  check('when the window is moved the pet goes along', Math.abs(edge(after) - edge(before) - 60) < 3 && Math.abs(after.y - before.y - 30) < 3 && (await attached()) === wid);
+  const now = lister().find((w) => w.id === wid);
+  const moved = { x: (now.left - was.left) / k, y: (now.top - was.top) / k };
+  say(`the window moved by ${now.left - was.left},${now.top - was.top} pixels: the wall of the pet moved by ${Math.round(edge(after) - edge(before))},${Math.round(after.y - before.y)} (expected ${Math.round(moved.x)},${Math.round(moved.y)})`);
+  check('when the window is moved the pet goes along', moved.x !== 0 && Math.abs(edge(after) - edge(before) - moved.x) < 3 && Math.abs(after.y - before.y - moved.y) < 3 && (await attached()) === wid);
 
   /** what the app knows about the pet and the window, as it changes, until `done` says it is over (or the time is up) */
   async function watch(label, done, timeout = 6000) {
