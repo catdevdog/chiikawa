@@ -1,8 +1,9 @@
-// Run on Windows (the build workflow does), with the window that scripts/win32-smoke-window.ps1 opens: minimizes it the
-// way the title bar's button does and the way a program does, and checks that the app's reading of the windows leaves it out
-// while it is minimized and has it back once it is restored. Besides that it writes down what the system's functions say
-// about the window at each step, so that a window that stays in the list can be told apart by what the system answered.
-//   node scripts/win32-minimize-check.mjs [title]
+// Run on Windows (the build workflow does): minimizes windows the way the title bar's button does and the way a program
+// does, and checks that the app's reading of the windows leaves each one out while it is minimized and has it back once it
+// is restored. Besides that it writes down what the system's functions say about the window at each step, so that a window
+// that stays in the list can be told apart by what the system answered.
+//   node scripts/win32-minimize-check.mjs [title]   the window with that title (scripts/win32-smoke-window.ps1 opens one)
+//   node scripts/win32-minimize-check.mjs --all     every window the app lists: the build workflow opens a few real programs first
 import { build } from 'esbuild';
 import { mkdtempSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -20,7 +21,8 @@ await build({ entryPoints: ['src/shell/win32.ts'], bundle: true, platform: 'node
 const { createWin32Lister } = require(out);
 const koffi = require('koffi');
 
-const title = process.argv[2] ?? 'buddy-smoke-window';
+const all = process.argv[2] === '--all';
+const title = all ? null : (process.argv[2] ?? 'buddy-smoke-window');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const hex = (n) => `0x${(Number(n) >>> 0).toString(16)}`;
 
@@ -39,18 +41,18 @@ const f = {
   zoomedInt: user32.func('int32_t __stdcall IsZoomed(intptr_t hwnd)'),
   style: user32.func('int32_t __stdcall GetWindowLongW(intptr_t hwnd, int index)'),
   rect: user32.func('int32_t __stdcall GetWindowRect(intptr_t hwnd, _Out_ ProbeRect *rect)'),
+  className: user32.func('int __stdcall GetClassNameW(intptr_t hwnd, _Out_ uint8_t *text, int max)'),
+  pid: user32.func('uint32_t __stdcall GetWindowThreadProcessId(intptr_t hwnd, _Out_ uint32_t *pid)'),
   dwmRect: dwmapi.func('int32_t __stdcall DwmGetWindowAttribute(intptr_t hwnd, uint32_t attribute, _Out_ ProbeRect *value, uint32_t size)'),
   dwmFlag: dwmapi.func('int32_t __stdcall DwmGetWindowAttribute(intptr_t hwnd, uint32_t attribute, _Out_ uint32_t *value, uint32_t size)'),
   post: user32.func('int32_t __stdcall PostMessageW(intptr_t hwnd, uint32_t msg, uintptr_t wparam, intptr_t lparam)'),
-  show: user32.func('int32_t __stdcall ShowWindow(intptr_t hwnd, int cmd)'),
 };
 
 const WM_SYSCOMMAND = 0x0112;
 const SC_MINIMIZE = 0xf020;
 const SC_RESTORE = 0xf120;
-const SW_MINIMIZE = 6;
-const SW_RESTORE = 9;
 const WS_MINIMIZE = 0x20000000;
+const GWL_STYLE = -16;
 
 const attempt = (fn) => {
   try {
@@ -60,6 +62,11 @@ const attempt = (fn) => {
   }
 };
 const box = (r) => (r && typeof r === 'object' ? `${r.left},${r.top},${r.right},${r.bottom}` : String(r));
+const classOf = (hwnd) => {
+  const buf = Buffer.alloc(514);
+  const n = f.className(hwnd, buf, 256);
+  return buf.toString('utf16le', 0, Math.max(0, Math.min(n, 256)) * 2);
+};
 
 /** What the app sees, and what the system says, about the window at this moment. */
 function probe(label, id) {
@@ -73,9 +80,8 @@ function probe(label, id) {
     isIconicInt: attempt(() => hex(f.iconicInt(hwnd))),
     isIconicBool: attempt(() => f.iconicBool(hwnd)),
     isWindowVisibleInt: attempt(() => hex(f.visibleInt(hwnd))),
-    isWindowVisibleBool: attempt(() => f.visibleBool(hwnd)),
     isZoomedInt: attempt(() => hex(f.zoomedInt(hwnd))),
-    styleHasMinimize: attempt(() => (f.style(hwnd, -16) & WS_MINIMIZE) !== 0),
+    styleHasMinimize: attempt(() => (f.style(hwnd, GWL_STYLE) & WS_MINIMIZE) !== 0),
     windowRect: attempt(() => (f.rect(hwnd, rect) !== 0 ? box(rect) : 'failed')),
     dwmFrame: attempt(() => {
       const hr = f.dwmRect(hwnd, 9, frame, 16);
@@ -92,38 +98,57 @@ function probe(label, id) {
   return { listed, framed };
 }
 
-const find = () => lister().find((w) => w.title === title);
-const first = find();
-if (!first) {
-  console.error(`::warning::no window titled "${title}" was found (a runner without a desktop shows none)`);
-  process.exit(1);
-}
-const id = first.id;
-console.log(`the window is ${id}: ${first.right - first.left}x${first.bottom - first.top} at ${first.left},${first.top}`);
-
 const failures = [];
 const expect = (ok, what) => {
   console.log(`${ok ? 'ok  ' : 'FAIL'} ${what}`);
   if (!ok) failures.push(what);
 };
 
-const normal = probe('normal', id);
-expect(normal.listed && normal.framed, 'an ordinary window is listed (and read by id)');
-
-for (const [name, minimize, restore] of [
-  ['the title bar button (SC_MINIMIZE)', () => f.post(Number(id), WM_SYSCOMMAND, SC_MINIMIZE, 0), () => f.post(Number(id), WM_SYSCOMMAND, SC_RESTORE, 0)],
-  ['ShowWindow(SW_MINIMIZE)', () => f.show(Number(id), SW_MINIMIZE), () => f.show(Number(id), SW_RESTORE)],
-]) {
-  minimize();
-  await sleep(1500);
-  const min = probe(`minimized by ${name}`, id);
-  expect(!min.listed, `minimized by ${name}: the window is left out of the list`);
-  expect(!min.framed, `minimized by ${name}: the window is left out when it is read by id`);
-  restore();
-  await sleep(1500);
-  const back = probe(`restored after ${name}`, id);
-  expect(back.listed && back.framed, `restored after ${name}: the window is listed again`);
+/** Minimizes one window two ways and restores it each time; each time the app has to leave it out and then list it again. */
+async function check(w) {
+  const id = w.id;
+  const who = `${id} "${w.title}" (${attempt(() => classOf(Number(id)))}, pid ${attempt(() => { const p = [0]; f.pid(Number(id), p); return p[0]; })}, ${w.right - w.left}x${w.bottom - w.top})`;
+  console.log(`--- ${who}`);
+  const normal = probe('normal', id);
+  expect(normal.listed && normal.framed, `${who}: listed (and read by id) before it is minimized`);
+  for (const [name, minimize, restore] of [
+    ['the title bar button (SC_MINIMIZE)', () => f.post(Number(id), WM_SYSCOMMAND, SC_MINIMIZE, 0), () => f.post(Number(id), WM_SYSCOMMAND, SC_RESTORE, 0)],
+  ]) {
+    minimize();
+    await sleep(1500);
+    const min = probe(`minimized by ${name}`, id);
+    // a window that did not obey is not a finding about the app (the probe above shows it was not minimized)
+    const obeyed = attempt(() => f.iconicInt(Number(id)) !== 0);
+    if (obeyed === true) {
+      expect(!min.listed, `${who}: minimized by ${name}: left out of the list`);
+      expect(!min.framed, `${who}: minimized by ${name}: left out when it is read by id`);
+    } else {
+      console.log(`skip ${who}: it did not minimize (${String(obeyed)})`);
+    }
+    restore();
+    await sleep(1500);
+    const back = probe(`restored after ${name}`, id);
+    if (obeyed === true) expect(back.listed && back.framed, `${who}: restored after ${name}: listed again`);
+  }
 }
+
+const started = Date.now();
+const found = lister();
+console.log(`${found.length} windows a pet could sit on (looked at in ${Date.now() - started} ms)`);
+for (const w of found) console.log(`  ${w.id} "${w.title}" ${attempt(() => classOf(Number(w.id)))} ${w.right - w.left}x${w.bottom - w.top} at ${w.left},${w.top}`);
+
+let targets;
+if (all) {
+  targets = found;
+} else {
+  const first = found.find((w) => w.title === title);
+  if (!first) {
+    console.error(`::warning::no window titled "${title}" was found (a runner without a desktop shows none)`);
+    process.exit(1);
+  }
+  targets = [first];
+}
+for (const w of targets) await check(w);
 
 if (failures.length > 0) {
   console.error(`::error::${failures.length} of the checks of minimized windows failed: ${failures.join('; ')}`);

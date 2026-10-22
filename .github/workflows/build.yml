@@ -72,6 +72,30 @@ jobs:
           $window = Start-Process powershell -PassThru -ArgumentList '-NoProfile', '-File', 'scripts/win32-smoke-window.ps1'
           Start-Sleep -Seconds 6
           try { node scripts/win32-minimize-check.mjs buddy-smoke-window } finally { Stop-Process -Id $window.Id -Force -ErrorAction SilentlyContinue }
+      # and with windows of real programs (whichever of these the runner has): they are opened, and each window that is listed is
+      # minimized and restored like the one above
+      - name: Check that minimized windows of real programs are left out
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force C:\firefox-smoke | Out-Null
+          $programs = @(
+            @{ file = 'notepad.exe'; args = @() },
+            @{ file = 'explorer.exe'; args = @('C:\') },
+            @{ file = 'calc.exe'; args = @() },
+            @{ file = 'mspaint.exe'; args = @() },
+            @{ file = 'chrome.exe'; args = @('--new-window', 'about:blank', '--no-first-run', '--user-data-dir=C:\chrome-smoke') },
+            @{ file = 'msedge.exe'; args = @('--new-window', 'about:blank', '--no-first-run', '--user-data-dir=C:\edge-smoke') },
+            @{ file = 'firefox.exe'; args = @('-new-window', 'about:blank', '-no-remote', '-profile', 'C:\firefox-smoke') }
+          )
+          foreach ($program in $programs) {
+            $start = @{ FilePath = $program.file; ErrorAction = 'Stop' }
+            if ($program.args.Count -gt 0) { $start.ArgumentList = $program.args }
+            try { Start-Process @start } catch { Write-Host "not started: $($program.file): $($_.Exception.Message)" }
+          }
+          $window = Start-Process powershell -PassThru -ArgumentList '-NoProfile', '-File', 'scripts/win32-smoke-window.ps1'
+          Start-Sleep -Seconds 20
+          try { node scripts/win32-minimize-check.mjs --all } finally { Stop-Process -Id $window.Id -Force -ErrorAction SilentlyContinue }
       # latest.yml (version, file name and checksum of the installer) and the .blockmap are what an installed app reads
       # to update itself, so a build without them is a broken release
       - name: Check the update files
