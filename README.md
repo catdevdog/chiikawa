@@ -183,7 +183,7 @@ skins/
 - **클릭 통과가 이상할 때**는 환경 변수 `BUDDY_DEBUG=1`로 실행하면 클릭 통과가 바뀔 때마다 로그에 남습니다.
 - **펫이 보이지 않을 때**는 트레이 아이콘이 있는지 확인합니다. 모니터가 여러 대이면 트레이 메뉴의 **모니터**가 '주 모니터만'이나 다른 모니터로 되어 있는지 봅니다. 로그의 `screens:` 줄에 펫이 올라간 모니터가 남습니다.
 - **창 위에 앉기가 되지 않을 때**는 Windows에서 트레이에 항목이 보이는지 확인합니다. 보이지 않으면 `buddy.log`에 `windows to sit on are not available`가 남았는지 봅니다(시스템 함수를 부르는 koffi를 불러오지 못한 것입니다). `could not read the windows`가 남았다면 창 목록을 읽다 오류가 난 것이라 그 실행 동안은 꺼집니다.
-- **창을 최소화했는데 숨은 펫이 매달려 있을 때**는 `buddy.log`를 알려 주세요. 펫이 창 옆에 숨을 때는 `hides at the side of the window`, 놓을 때는 `let go of the window` 줄이 남고, 창이 어떤 종류의 프로그램인지(괄호 안의 클래스 이름)와 그때 창이 목록에 있었는지(`window listed: yes`나 `no`)도 적힙니다. 창이 읽히지 않게 되어 목록에서 뺄 때는 `is not listed any more` 줄이 남습니다. 숨은 뒤로 아무 줄도 남지 않았다면 앱은 그 창이 아직 있다고 보고 있는 것입니다.
+- **창을 최소화했는데 숨은 펫이 매달려 있을 때**는 `buddy.log`를 알려 주세요. 펫이 창 옆에 숨을 때는 `hides at the side of the window`, 놓을 때는 `let go of the window` 줄이 남고, 창이 어떤 종류의 프로그램인지(괄호 안의 클래스 이름)와 그때 창이 목록에 있었는지(`window listed: yes`나 `no`)도 적힙니다. 창이 읽히지 않게 되어 목록에서 뺄 때는 `is not listed any more` 줄이 남습니다. 숨은 뒤로 아무 줄도 남지 않았다면 앱은 그 창이 아직 있다고 보고 있는 것입니다. 펫의 그림만 멈춰 보였다면 `this window has not been painting for` 줄(창이 2초 넘게 그려지지 않았을 때)이나 `the simulation was held up for` 줄(펫을 움직이는 쪽이 2초 넘게 멈췄을 때)이 남았는지도 봅니다.
 - **백신이 막을 때**는 코드 서명이 없어서 생기는 오탐일 수 있습니다. 소스는 이 저장소에 그대로 공개되어 있습니다.
 
 ## 개발

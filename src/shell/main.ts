@@ -57,6 +57,8 @@ const DISPLAY_SETTLE_MS = 150;
 const PERCH_POLL_MS = 200;
 /** the windows that pets go along with are looked at this often, and only those: it is what makes them move with the window */
 const FOLLOW_POLL_MS = 33;
+/** a pause of this long (ms) in the simulation, or in the painting of an overlay, is written in the log */
+const STALL_MS = 2000;
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -187,9 +189,18 @@ function tellAll(channel: string, payload: unknown): void {
 
 function startLoop(): void {
   let failures = 0;
+  let lastTick = performance.now();
+  let lastHeldUpLog = -Infinity;
   setInterval(() => {
+    const now = performance.now();
+    // the pets are moved here: when this was held up for a while (a slow call of the system, say) the log says for how long
+    if (now - lastTick > STALL_MS && now - lastHeldUpLog > 10_000) {
+      lastHeldUpLog = now;
+      log('warn', `the simulation was held up for ${Math.round(now - lastTick)} ms`);
+    }
+    lastTick = now;
     try {
-      stage.tick(performance.now());
+      stage.tick(now);
     } catch (err) {
       // a broken step must not stop the pet for good; say so once in a while instead of 60 times a second
       if (failures++ % 600 === 0) log('error', `tick failed: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);

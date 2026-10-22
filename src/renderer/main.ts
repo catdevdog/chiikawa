@@ -12,6 +12,8 @@ const host = pickHost();
 
 /** Calm poses (idle, sit, sleep) only need a slow refresh. */
 const CALM_REDRAW_MS = 66;
+/** a pause of this long (ms) in the painting of this window is written in the log */
+const STALL_MS = 2000;
 
 async function loadSkinOrDefault(id: string): Promise<Skin> {
   try {
@@ -244,6 +246,19 @@ async function start(): Promise<void> {
   let last = performance.now();
   let lastStatus = 0;
   const shown: DrawnPet[] = [];
+  // a window whose painting stops (put away by the system, a compositor that stalls) keeps showing its last picture for as long as that
+  // lasts, which looks like a pet that stays where it was: the log says when that happens and when it is over
+  let stalled = false;
+  setInterval(() => {
+    const gap = performance.now() - last;
+    if (gap > STALL_MS && !stalled) {
+      stalled = true;
+      host.log('warn', `this window has not been painting for ${Math.round(gap)} ms`);
+    } else if (gap <= STALL_MS && stalled) {
+      stalled = false;
+      host.log('info', 'this window paints again');
+    }
+  }, 1000);
   const frame = (now: number): void => {
     requestAnimationFrame(frame);
     const dt = now - last;
