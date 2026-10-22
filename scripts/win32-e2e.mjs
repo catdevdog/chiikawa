@@ -3,7 +3,10 @@
 // A pet is put down beside the left edge of that window and hides there; then the window is moved, minimized and restored,
 // and closed, the way a person does it, and the pet has to go along, let go, and let go. Everything is told as it happens so
 // that a pet that stays where it is can be told apart by what the app knew at that moment.
-//   node scripts/win32-e2e.mjs [title]
+//   node scripts/win32-e2e.mjs [title] [setup]
+// `setup` is how the app is set up: "plain" (a pet that walks along a floor, in wander mode, silent: what the other checks use),
+// "user" (the settings of somebody who has just installed it: the whole screen, mode auto, words, tricks, a friend), or "scaled"
+// (those, with the screen scaled by half as much again, as on a laptop at 150 %).
 import { build } from 'esbuild';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -21,6 +24,15 @@ const { _electron: electron } = require('playwright-core');
 const electronPath = require('electron');
 
 const title = process.argv[2] ?? 'buddy-smoke-window';
+const setup = process.argv[3] ?? 'plain';
+const SETTINGS = {
+  plain: { skin: 'usagi', friends: [], mode: 'wander', roam: 'floor', speech: 'off', tricks: false, windows: true },
+  user: { skin: 'usagi', friends: ['hachiware'], mode: 'auto', roam: 'free', speech: 'all', tricks: true, windows: true },
+};
+if (!['plain', 'user', 'scaled'].includes(setup)) {
+  console.error(`unknown setup "${setup}"`);
+  process.exit(2);
+}
 const root = process.cwd();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const t0 = Date.now();
@@ -71,8 +83,10 @@ say(`the window is ${wid}: ${form.right - form.left}x${form.bottom - form.top} a
 // --- the app -------------------------------------------------------------------------------------------------------------
 const userData = mkdtempSync(path.join(os.tmpdir(), 'buddy-e2e-data-'));
 mkdirSync(path.join(userData, 'skins'), { recursive: true });
-writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({ skin: 'usagi', friends: [], mode: 'wander', roam: 'floor', speech: 'off', tricks: false, windows: true }));
-const app = await electron.launch({ executablePath: electronPath, args: ['.', '--disable-gpu', `--user-data-dir=${userData}`, '--lang=ko'], env: { ...process.env, BUDDY_TEST: '1' }, cwd: root });
+writeFileSync(path.join(userData, 'settings.json'), JSON.stringify(SETTINGS[setup === 'plain' ? 'plain' : 'user']));
+const scale = setup === 'scaled' ? ['--force-device-scale-factor=1.5'] : [];
+say(`setup: ${setup}`);
+const app = await electron.launch({ executablePath: electronPath, args: ['.', '--disable-gpu', `--user-data-dir=${userData}`, '--lang=ko', ...scale], env: { ...process.env, BUDDY_TEST: '1' }, cwd: root });
 const logs = [];
 app.process().stdout?.on('data', (d) => logs.push(String(d)));
 app.process().stderr?.on('data', (d) => logs.push(String(d)));
@@ -130,13 +144,15 @@ try {
   await waitFor(async () => (await view()).state === 'peek', 4000, 100);
   await sleep(800);
 
-  // the window moves: the pet goes with it
+  // the window moves: the pet goes with it (it is the edge of the picture at the wall that stays where the window's edge is: the pet
+  // itself ducks back and forth along the way)
+  const edge = (v) => v.hitbox.x + v.hitbox.w;
   const before = await view();
   setWindowPos(Number(wid), 0, form.left + 60, form.top + 30, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
   await sleep(500);
   const after = await view();
-  say(`the window moved by 60,30: the pet moved by ${Math.round(after.x - before.x)},${Math.round(after.y - before.y)}`);
-  check('when the window is moved the pet goes along', Math.abs(after.x - before.x - 60) < 4 && Math.abs(after.y - before.y - 30) < 4 && (await attached()) === wid);
+  say(`the window moved by 60,30: the wall of the pet moved by ${Math.round(edge(after) - edge(before))},${Math.round(after.y - before.y)}`);
+  check('when the window is moved the pet goes along', Math.abs(edge(after) - edge(before) - 60) < 3 && Math.abs(after.y - before.y - 30) < 3 && (await attached()) === wid);
 
   /** what the app knows about the pet and the window, as it changes, until `done` says it is over (or the time is up) */
   async function watch(label, done, timeout = 6000) {

@@ -238,6 +238,8 @@ function followWindows(): void {
       }
       const f = fresh.get(b.id);
       if (!f) {
+        // a window that a pet goes along with is not one to stand on any more (closed, minimized, hidden)
+        log('info', `windows: the window ${b.id} that a pet goes along with is not listed any more`);
         changed = true;
         continue;
       }
@@ -674,6 +676,7 @@ async function boot(): Promise<void> {
   stageDeps = {
     cursor: () => screen.getCursorScreenPoint(),
     covered: makerCovers,
+    log: (message) => log('info', message),
     ...(cursorControl ? { setCursor: moveCursor, cursorBusy: () => cursorControl?.busy() ?? false } : {}),
   };
   stage = new Stage(stageDeps, settings);

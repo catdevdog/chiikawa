@@ -1,6 +1,7 @@
 import { Flock, Pet } from '../engine';
 import { nearestSide } from '../engine/peek';
 import type { NoticeEvent, PetView, Platform, Rect, SayEvent, Side, Vec2 } from '../engine/types';
+import { windowOf } from '../engine/perch';
 import { clamp, mulberry32 } from '../engine/vec';
 import { bodyOf, fitTo } from '../shared/body';
 import { MAX_FRIENDS, type Area, type PointerReport, type Settings, type SkinReport, type ViewFrame } from '../shared/types';
@@ -24,6 +25,8 @@ export interface StageDeps {
   setCursor?(p: Vec2): void;
   /** Is the mouse in use for something else (a button is down, a program has the whole screen)? The pet leaves it alone then. */
   cursorBusy?(): boolean;
+  /** Where to write down (in the log) what a pet does about the windows of other programs, so that a report of one that did not do as it should can be followed. */
+  log?(message: string): void;
   rng?: () => number;
 }
 
@@ -54,6 +57,8 @@ interface Member {
   v: Vec2;
   sent: { state: string; facing: number; interactive: boolean; scale: number; particles: number };
   sentAt: number;
+  /** the window this pet hides at the side of (null: none), as it was at the last step */
+  hidesAt: string | null;
 }
 
 /**
@@ -319,7 +324,10 @@ export class Stage {
       this.members.map((m) => ({ id: m.id, pet: m.pet })),
     );
     this.members[0]?.pet.setCursorBusy(busy);
-    for (const m of this.members) m.pet.update(dt);
+    for (const m of this.members) {
+      m.pet.update(dt);
+      this.noteWindow(m);
+    }
     // a pet that pulls at the mouse takes the cursor where it wants it
     const goal = this.members[0]?.pet.takeCursorGoal();
     if (goal && this.deps.setCursor) this.deps.setCursor(goal);
@@ -331,6 +339,17 @@ export class Stage {
   }
 
   // --- internals -----------------------------------------------------------
+
+  /** Writes down when a pet takes to the side of a window and when it lets go of it, and whether the window was still listed then. */
+  private noteWindow(m: Member): void {
+    const now = m.pet.attached ? m.pet.windowId : null;
+    if (now === m.hidesAt) return;
+    const was = m.hidesAt;
+    m.hidesAt = now;
+    if (!this.deps.log) return;
+    if (now !== null) this.deps.log(`${m.id} hides at the side of the window ${now}`);
+    else if (was !== null) this.deps.log(`${m.id} let go of the window ${was} (window listed: ${this.sides.some((s) => windowOf(s.id) === was) ? 'yes' : 'no'}, state: ${m.pet.view.state})`);
+  }
 
   /** Three clicks on a pet send everyone to hide; a click on one that hides brings everyone out. */
   private answerClick(m: Member): void {
@@ -479,7 +498,7 @@ export class Stage {
       x: standing ? this.startX(first, standing) : undefined,
       config: { scale: s.scale, roam: s.roam, sprite: skin.box, hitbox: skin.hitbox, peek: skin.peek, hang: skin.hang },
     });
-    const m: Member = { id, pet, skin, from: null, v: { x: 0, y: 0 }, sent: { state: '', facing: 0, interactive: false, scale: 0, particles: 0 }, sentAt: -Infinity };
+    const m: Member = { id, pet, skin, from: null, v: { x: 0, y: 0 }, sent: { state: '', facing: 0, interactive: false, scale: 0, particles: 0 }, sentAt: -Infinity, hidesAt: null };
     pet.setSpeech(s.speech);
     pet.setTricks(s.tricks);
     // only the main character (the one that is not a friend) looks for attention, and only where the cursor can be moved
