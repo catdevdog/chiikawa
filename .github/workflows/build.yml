@@ -96,6 +96,16 @@ jobs:
           $window = Start-Process powershell -PassThru -ArgumentList '-NoProfile', '-File', 'scripts/win32-smoke-window.ps1'
           Start-Sleep -Seconds 20
           try { node scripts/win32-minimize-check.mjs --all } finally { Stop-Process -Id $window.Id -Force -ErrorAction SilentlyContinue }
+      # the app itself next to a real window, with the real mouse: a pet is put down beside the window and hides there, and the window is
+      # moved, minimized, restored and closed; it only tells (what the app knew at each moment is written to the log)
+      - name: Check the app with a real window
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          npm install --no-save --no-audit --no-fund playwright-core@1.56.1
+          $window = Start-Process powershell -PassThru -ArgumentList '-NoProfile', '-File', 'scripts/win32-smoke-window.ps1'
+          Start-Sleep -Seconds 6
+          try { node scripts/win32-e2e.mjs buddy-smoke-window } finally { Stop-Process -Id $window.Id -Force -ErrorAction SilentlyContinue }
       # latest.yml (version, file name and checksum of the installer) and the .blockmap are what an installed app reads
       # to update itself, so a build without them is a broken release
       - name: Check the update files
