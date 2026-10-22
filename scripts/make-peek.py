@@ -77,11 +77,14 @@ def hachiware_prepare(img):
 
 
 def hachiware_peek_prepare(img):
-    # The same, for the picture that hides. Drawn dead straight, the stroke became (once the picture is turned) a long flat
-    # line under the face that looked nothing like a chin; `bump` draws its middle 10 px in towards the body, so that the head
-    # has a round jaw with a dip under it, as the head has over the body in the picture itself. (The picture that hangs over a
+    # The same, for the picture that hides, but the new stroke is not drawn across. In the picture itself the head is wider than the
+    # body and a neck runs in under it; once the picture is turned, a straight stroke there was a long flat line under the face,
+    # and a stroke with a dip in it was a bite taken out of the jaw. The head is round, so what is drawn there is the lower
+    # outline of the head as it would be if the body did not hide it: an ellipse that is as wide as the head (from x 31 to 269,
+    # round the middle of the face at x 150) and has the real outline's place and direction at the top of the rows. It
+    # curves in under the cheek and comes round to the chin as a face does, and rises to the wall. (The picture that hangs over a
     # window keeps the straight stroke: its cut is just under the mouth, and the hands sit on the outline as it is.)
-    return pa.bridge(img, rows=(205.0, 266.0), x_span=(28, 90), ink=HACHIWARE_INK, fill=HACHIWARE_BODY, outside='left', bump=10)
+    return pa.bridge(img, rows=(205.0, 266.0), x_span=(28, 90), ink=HACHIWARE_INK, fill=HACHIWARE_BODY, outside='left', shape=pa.head_arc(150, 119))
 
 
 # Chiikawa. The idle picture holds a lollipop (a swirl in front of the mouth and belly, held with the left arm), and neither
@@ -196,10 +199,10 @@ SKINS = {
         prepare=hachiware_prepare,
         peek_prepare=hachiware_peek_prepare,
         # face: the middle of the eyes (at (114, 162) and (186, 168)); wall_dx: the rightmost pixel of the mouth (the little
-        # dash under it included) is 40.8 to the right of the face, and the wall is 2 more; bottom: the row where the lower outline
-        # of the head meets the wall, the lower hand is 2 px under it; the outline comes to the wall at the top at row 38, and
-        # the upper hand is 3 px above that (as far from the outline as the lower one is)
-        peek=dict(face=(150, 165), tilt=60, wall_dx=43, bottom=277, hands=[(2, 35), (2, 278)], hand_r=17, hand_w=6),
+        # dash under it included) is 40.8 to the right of the face, and the wall is 2 more; bottom: the row of the lowest point of
+        # the chin, which is round and a little way from the wall; the outline comes to the wall at the bottom at row 262 and at
+        # the top at row 46, and the hands are on those, the lower 2 px under the outline and the upper 3 px above it
+        peek=dict(face=(150, 165), tilt=60, wall_dx=43, bottom=277, hands=[(2, 43), (2, 264)], hand_r=17, hand_w=6),
         # cut: 16 px under the last row of the mouth (212); hands_dx: the head is 207 px wide at the cut (from x 47 to 254)
         hang=dict(cut=229, face_x=150, hands_dx=86, hand_r=17, hand_w=6),
     ),

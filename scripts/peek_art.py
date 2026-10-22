@@ -64,7 +64,7 @@ def _hermite(y, y0, c0, s0, y1, c1, s1):
     return (2 * t**3 - 3 * t**2 + 1) * c0 + (t**3 - 2 * t**2 + t) * h * s0 + (-2 * t**3 + 3 * t**2) * c1 + (t**3 - t**2) * h * s1
 
 
-def bridge(img, rows, x_span, ink, fill, outside='left', keep_rows=3.0, window=5, bump=0.0):
+def bridge(img, rows, x_span, ink, fill, outside='left', keep_rows=3.0, window=5, bump=0.0, shape=None):
     """
     Draws an outline that runs roughly up and down straight across the rows `rows` = (y0, y1) (pixels of the frame), where
     an arm or a foot interrupts it, and takes the arm off: in those rows, within the columns `x_span`, the picture is made
@@ -72,8 +72,14 @@ def bridge(img, rows, x_span, ink, fill, outside='left', keep_rows=3.0, window=5
     look (width, softness). `outside` is the side of the stroke that is empty ('left' or 'right'); the other side is
     the body, `fill` (a colour). `img` is a frame made SS times as big. Choose rows that start and end where the outline is
     clean: the arm and its hook are between them. `bump`: how far (in pixels of the frame) the middle of the new stroke is
-    drawn in towards the body, so that it dips between the two ends like the neck between a head and a body (the ends
-    stay where they are; 0 is straight, as the outline would be if nothing was between the rows).
+    drawn in towards the body (a negative number: out, away from it), as a smooth swell (the sine, squared) that is nothing
+    at both ends and has no slope there, so that the new stroke runs into the old one without a corner (0 is straight, as
+    the outline would be if nothing was between the rows). A swell that does have a slope at the ends (the plain sine) makes
+    a corner where the new stroke meets the old, which shows once the picture is turned. `shape`: another way to draw the
+    stroke than the curve between the two ends: a function that is given where the real stroke is at the two ends (the
+    row, the column and the direction at the first end, then the same at the second) and returns a function of the row
+    (in pixels of the frame) that gives the column of the middle of the new stroke. It has to start where the real stroke
+    does and with the same direction; where it ends only matters as far as it is in view.
     """
     arr = np.asarray(img).copy()
     ink = np.array(ink, dtype=np.float64)
@@ -85,6 +91,7 @@ def bridge(img, rows, x_span, ink, fill, outside='left', keep_rows=3.0, window=5
     w = int(window * SS)
     ya, ca, sa, pa = _edge(arr, range(r_a - n, r_a), x0, x1, ink, paper, w)
     yb, cb, sb, pb = _edge(arr, range(r_b, r_b + n), x0, x1, ink, paper, w)
+    curve = shape(ya, ca, sa, yb, cb, sb) if shape is not None else None
     xs = np.arange(arr.shape[1], dtype=np.float64) + 0.5
     offs = np.arange(-w, w + 1, dtype=np.float64)
     cols = np.zeros(arr.shape[1], bool)
@@ -93,9 +100,12 @@ def bridge(img, rows, x_span, ink, fill, outside='left', keep_rows=3.0, window=5
         y = (r + 0.5) / SS
         t = min(1.0, max(0.0, (y - ya) / (yb - ya)))
         prof = (1 - t) * pa + t * pb
-        centre = _hermite(y, ya, ca, sa, yb, cb, sb) * SS
-        # drawn in towards the body (to the right when the outside is on the left), most in the middle
-        centre += (1 if outside == 'left' else -1) * bump * SS * math.sin(math.pi * t)
+        if curve is not None:
+            centre = curve(y) * SS
+        else:
+            centre = _hermite(y, ya, ca, sa, yb, cb, sb) * SS
+            # drawn in towards the body (to the right when the outside is on the left), most in the middle, and not at all at the ends
+            centre += (1 if outside == 'left' else -1) * bump * SS * math.sin(math.pi * t) ** 2
         cov = np.interp(xs - centre, offs, prof, left=0, right=0)
         row = np.zeros((arr.shape[1], 4), dtype=np.float64)
         out = xs < centre if outside == 'left' else xs >= centre
@@ -106,6 +116,29 @@ def bridge(img, rows, x_span, ink, fill, outside='left', keep_rows=3.0, window=5
         row[inn, 3] = 255
         arr[r][cols] = np.round(row[cols]).astype(np.uint8)
     return Image.fromarray(arr, 'RGBA')
+
+
+def head_arc(middle, half_width):
+    """
+    A `shape` for `bridge`: the lower outline of a round head, an ellipse that is `half_width` to each side of the column
+    `middle` and that has the real outline's place and direction at the first end (the second end is not looked at: it is
+    where the outline of the body goes on, and the head has none of that). The outline curves in under the cheek and comes
+    round to the bottom of the head, as a face does, instead of running straight on into the side of the body.
+    """
+
+    def make(ya, ca, sa, yb, cb, sb):
+        c = (middle - ca) / half_width  # how far out from the middle of the head the outline is there, in half widths
+        u = math.sqrt(max(1e-9, 1 - c * c))  # how far down from the widest row of the head, in half heights
+        height = half_width * u / (c * sa)  # the direction there says how high the head is
+        widest = ya - u * height  # the row where the head is widest
+
+        def curve(y):
+            v = min(1.0, (y - widest) / height)
+            return middle - half_width * math.sqrt(max(0.0, 1 - v * v))
+
+        return curve
+
+    return make
 
 
 # --- hands ----------------------------------------------------------------------------------------------------------------
