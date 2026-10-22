@@ -18,9 +18,9 @@
   <ellipse cx="50" cy="75" rx="4.6" ry="6.4" fill="#3A2E2A"/><circle cx="48.6" cy="72.2" r="1.8" fill="#fff"/>
   <ellipse cx="78" cy="75" rx="4.6" ry="6.4" fill="#3A2E2A"/><circle cx="76.6" cy="72.2" r="1.8" fill="#fff"/><path d="M59 86 Q64 91.5 69 86" fill="none" stroke="#3A2E2A" stroke-width="2.4" stroke-linecap="round"/>
 </g>
-<!-- two small round hands on the edge of the wall, one above the other: the lower one lies on the line where the head meets the wall -->
+<!-- two small round hands on the edge of the wall, one on each side of the face: each lies on the line where the head meets the wall, the upper one where it comes to the wall at the top and the lower one at the bottom -->
 <g fill="#FFE9A6" stroke="#C99A3B" stroke-width="2.5">
-  <circle cx="2" cy="98.5" r="6.25"/>
+  <circle cx="2" cy="35.5" r="6.25"/>
   <circle cx="2" cy="114.5" r="6.25"/>
 </g>
 </svg>

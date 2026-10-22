@@ -5,7 +5,8 @@ Makes the two pictures a skin hides with, from the skin's own idle pictures (the
     python3 scripts/make-peek.py            # every skin below
     python3 scripts/make-peek.py usagi      # one skin
 
-  skins/<id>/peek.png  hiding behind a wall: the pet leans out, the face turned away from the wall, two small round hands on its edge
+  skins/<id>/peek.png  hiding behind a wall: the pet leans out, the face turned away from the wall, two small round hands on its
+                       edge, one on each side of the face (where the outline of the head comes to the wall at the top and at the bottom)
   skins/<id>/hang.png  looking over the top edge of a window: the head down to just under the mouth, two small round hands on the edge
 
 Each is a sheet with a frame for every frame of "idle", and "poses.peek" and "poses.hang" are put in the skin's
@@ -16,12 +17,14 @@ The numbers below were found by looking at the pictures, so they fit these skins
             that leans out), and draws the outline across where it was. The rows and columns are where that arm is.
   peek      face: the middle of the face (the picture is turned about it); tilt: how far, in degrees; wall_dx: how far
             from the middle of the face the wall is (enough for the mouth to be in view); bottom: the row where the body
-            in view ends; hands: the middles of the two hands, how far from the wall and which row; hand_r, hand_w:
-            the inside of a hand and its outline
+            in view ends; hands: the middles of the two hands, how far from the wall and which row (the upper one at the
+            top of the stretch of wall where the head is, the lower one at the bottom, each on the outline that comes to the
+            wall there; `python3 scripts/make-peek.py` prints a warning when one is cut off by the border of the picture);
+            hand_r, hand_w: the inside of a hand and its outline
   hang      cut: the row of the idle picture just under the mouth; face_x: the middle of the face; hands_dx: how far each
             hand is from it
   The ink is the colour of the outlines, hand the colour of the hands (the colour of the body, unless the hands are
-  drawn another colour).
+  drawn another colour); peek_hand is the colour of the hands in the picture for hiding, when that differs.
 
 Sprout (skins/default) is drawn as a vector picture by hand, with the wall on the left because its art faces right:
 skins/default/peek.svg and skins/default/hang.svg. The wall is the right border of the pictures made here (the art of
@@ -175,7 +178,7 @@ SKINS = {
         ink=USAGI_INK,
         hand=USAGI_BODY,
         prepare=usagi_prepare,
-        peek=dict(face=(112, 128), tilt=60, wall_dx=23, bottom=204, hands=[(2, 176), (2, 206)], hand_r=10, hand_w=4),
+        peek=dict(face=(112, 128), tilt=60, wall_dx=23, bottom=204, hands=[(2, 43), (2, 206)], hand_r=10, hand_w=4),
         hang=dict(cut=166, face_x=118, hands_dx=62, hand_r=10, hand_w=4),
     ),
     'hachiware': dict(
@@ -184,8 +187,9 @@ SKINS = {
         prepare=hachiware_prepare,
         # face: the middle of the eyes (at (114, 162) and (186, 168)); wall_dx: the rightmost pixel of the mouth (the little
         # dash under it included) is 40.8 to the right of the face, and the wall is 2 more; bottom: the row where the lower outline
-        # of the head meets the wall, the lower hand is 2 px under it and the upper hand 2 * (r + w) + 2 above that
-        peek=dict(face=(150, 165), tilt=60, wall_dx=43, bottom=277, hands=[(2, 231), (2, 279)], hand_r=17, hand_w=6),
+        # of the head meets the wall, the lower hand is 2 px under it; the outline comes to the wall at the top at row 38, and
+        # the upper hand is 3 px above that (as far from the outline as the lower one is)
+        peek=dict(face=(150, 165), tilt=60, wall_dx=43, bottom=277, hands=[(2, 35), (2, 279)], hand_r=17, hand_w=6),
         # cut: 16 px under the last row of the mouth (212); hands_dx: the head is 207 px wide at the cut (from x 47 to 254)
         hang=dict(cut=229, face_x=150, hands_dx=86, hand_r=17, hand_w=6),
     ),
@@ -193,7 +197,7 @@ SKINS = {
         ink=CHIIKAWA_INK,
         hand=CHIIKAWA_BODY,
         prepare=chiikawa_prepare,
-        peek=dict(face=(157, 137), tilt=60, wall_dx=34, bottom=210, hands=[(2, 176), (2, 210)], hand_r=11.5, hand_w=4.5),
+        peek=dict(face=(157, 137), tilt=60, wall_dx=34, bottom=210, hands=[(2, 31), (2, 210)], hand_r=11.5, hand_w=4.5),
         hang=dict(cut=182, face_x=160.5, hands_dx=61.5, hand_r=11.5, hand_w=4.5),
     ),
     'rakko': dict(
@@ -204,9 +208,12 @@ SKINS = {
         # right ear is not clipped by the top of the frame while the picture turns (the picture is the same, only 8.7 px lower in
         # the frame); wall_dx: the rightmost pixel of the mouth (the little curve under it included) turns to 32.9 to the right of
         # the middle of the eyes and the wall is 2 more, that is 35, and 30 for the moved face; bottom: the row where the lower
-        # edge of the head meets the wall, the lower hand is 2 px under it and the upper hand 2 * (r + w) + 2 above that;
-        # the outside of a hand, 2 * (r + w) = 48, is 0.19 of the head's width (250)
-        peek=dict(face=(164, 131), tilt=60, wall_dx=30, bottom=272, hands=[(2, 224), (2, 274)], hand_r=18, hand_w=6),
+        # edge of the head meets the wall. The head is 262 px high at the wall, and a hand has to be on the outline at each end
+        # of that: with hands of 48 px (r 18, w 6) it does not fit in the 310 px of the picture, so they are 40 px (r 15, w 5),
+        # and the picture is 15 px lower than it would be (bottom 272 + 15). The upper hand is on the dark ear that comes to the
+        # wall there, so that the hands are drawn in the colour of the body (peek_hand): dark ones would melt into the ear.
+        peek=dict(face=(164, 131), tilt=60, wall_dx=30, bottom=287, hands=[(2, 24), (2, 286)], hand_r=15, hand_w=5),
+        peek_hand=RAKKO_BODY,
         # cut: 12 px under the last row of the mouth (167), just above the top of the scarf (178); face_x: the middle of the head
         # at the cut (from x 43 to 269; the middle of the eyes is 2 px to the left of it); hands_dx: 0.85 of half of that width
         hang=dict(cut=179, face_x=156, hands_dx=96, hand_r=18, hand_w=6),
@@ -225,7 +232,7 @@ def make(skin, cfg):
         bigs = [cfg['prepare'](b) for b in bigs]
     ink, hand = cfg['ink'], cfg['hand']
     pictures = {
-        'peek': pa.peek_frames(bigs, (W, H), hand_fill=hand, ink=ink, **cfg['peek']),
+        'peek': pa.peek_frames(bigs, (W, H), hand_fill=cfg.get('peek_hand', hand), ink=ink, **cfg['peek']),
         'hang': pa.hang_frames(bigs, (W, H), feet=feet, hand_fill=hand, ink=ink, **cfg['hang']),
     }
     for pose, result in pictures.items():

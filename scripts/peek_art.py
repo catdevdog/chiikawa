@@ -5,7 +5,8 @@ Two pictures are made from a skin's own "idle" frames (the same frames, so the b
 
   peek  the pet leans out from behind a wall that stands at the right border of the picture. The whole picture is
         turned counter-clockwise about the middle of the face, so that the face tilts away from the wall and the
-        body goes behind it by itself; the wall cuts the picture there. Two small round hands ("O") hold the edge.
+        body goes behind it by itself; the wall cuts the picture there. Two small round hands ("O") hold the edge, one
+        on each side of the face: where the outline of the head comes to the wall at the top, and at the bottom.
   hang  the pet looks over the top edge of a window: the head from the ears down to just under the mouth, cut flat
         along the bottom of the picture (the edge), with two small round hands on that edge, one on each side.
 
@@ -119,7 +120,8 @@ def peek_frames(bigs, size, tilt, face, wall_dx, bottom, hands, hand_r, hand_w, 
     One picture for each of `bigs` (frames SS times as big, with whatever sticks out already taken off).
     tilt: degrees counter-clockwise, about `face` (x, y in frame pixels: the middle of the face).
     wall_dx: how far to the right of `face` the wall is. bottom: the row of the lowest thing of the body in view (in the
-    first frame; nothing jumps when the ears move). hands: [(x, y)] the middles of the hands, x from the wall.
+    first frame; nothing jumps when the ears move). hands: [(x, y)] the middles of the hands, x from the wall: the
+    first at the top of the face, the second at the bottom, each on the outline of the head where it comes to the wall.
     """
     W, H = size
     out = []
