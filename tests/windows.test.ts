@@ -223,12 +223,13 @@ describe('the windows of the system', () => {
 
   it('lists the windows of programs front to back, with the frame that is drawn', () => {
     const { koffi } = fakeKoffi([
-      { h: 100, title: 'Browser', rect: frame(92, 92, 908, 708), frame: frame(100, 100, 900, 700) },
+      { h: 100, title: 'Browser', className: 'Chrome_WidgetWin_1', rect: frame(92, 92, 908, 708), frame: frame(100, 100, 900, 700) },
       { h: 200, title: 'Notepad', rect: frame(300, 300, 700, 600), frame: frame(300, 300, 700, 600) },
     ]);
+    // each comes with what kind of window it is, which is what the log says about the window a pet hides at
     expect(createWin32Lister(koffi, 1000)()).toEqual([
-      { id: '100', left: 100, top: 100, right: 900, bottom: 700, title: 'Browser' },
-      { id: '200', left: 300, top: 300, right: 700, bottom: 600, title: 'Notepad' },
+      { id: '100', left: 100, top: 100, right: 900, bottom: 700, title: 'Browser', className: 'Chrome_WidgetWin_1' },
+      { id: '200', left: 300, top: 300, right: 700, bottom: 600, title: 'Notepad', className: 'AppWindow' },
     ]);
   });
 
@@ -249,7 +250,7 @@ describe('the windows of the system', () => {
 
   it('falls back to the plain rectangle when the system cannot tell the frame that is drawn', () => {
     const { koffi } = fakeKoffi([{ h: 1, title: 'old', rect: frame(10, 20, 410, 320) }]);
-    expect(createWin32Lister(koffi, 1000)()).toEqual([{ id: '1', left: 10, top: 20, right: 410, bottom: 320, title: 'old' }]);
+    expect(createWin32Lister(koffi, 1000)()).toEqual([{ id: '1', left: 10, top: 20, right: 410, bottom: 320, title: 'old', className: 'AppWindow' }]);
   });
 
   it('goes on to the next window when looking at one goes wrong', () => {
@@ -268,7 +269,7 @@ describe('the windows of the system', () => {
       { h: 400, title: 'broken', broken: true, rect: frame(0, 0, 500, 400) },
     ]);
     const lister = createWin32Lister(koffi, 1000);
-    expect(lister.frames(['200'])).toEqual([{ id: '200', left: 300, top: 300, right: 700, bottom: 600, title: 'Notepad' }]);
+    expect(lister.frames(['200'])).toEqual([{ id: '200', left: 300, top: 300, right: 700, bottom: 600, title: 'Notepad', className: 'AppWindow' }]);
     expect(lister.frames(['200', '100']).map((w) => w.id)).toEqual(['200', '100']);
     // a window that is gone (or put away, or went wrong while it was looked at), and what is not an id of a window, are left out
     expect(lister.frames(['999', '300', '400', 'x', '0', '-5', '1.5', ''])).toEqual([]);

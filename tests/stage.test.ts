@@ -1202,9 +1202,9 @@ describe('hiding at the side of a window', () => {
   const box = (id: string, x: number, y: number, w: number, h: number): WindowBox => ({ id, x, y, w, h });
   const WINDOW = box('w', 500, 100, 500, 400);
 
-  /** a stage whose main character is `main`, with its friends (all skins up) */
-  function crowd(main: string, friends: string[]) {
-    const settings: Settings = { ...SETTINGS, skin: main, friends };
+  /** a stage whose main character is `main`, with its friends (all skins up); `extra` changes the settings */
+  function crowd(main: string, friends: string[], extra: Partial<Settings> = {}) {
+    const settings: Settings = { ...SETTINGS, skin: main, friends, ...extra };
     const t = setup([LEFT], settings);
     t.stage.setSkin({ ...GEOMETRY, id: main });
     for (const id of friends) t.stage.setSkin({ ...GEOMETRY, id });
@@ -1305,6 +1305,36 @@ describe('hiding at the side of a window', () => {
     t.run(3500);
     expect(t.stage.attachments).toEqual([{ id: 'default', at: null }]);
     expect(viewOf(t, 'default').y).toBe(LEFT.height);
+  });
+
+  it('lets go when the window goes away with the settings of a new install too: the whole screen, automatic mode, words, tricks, a friend', () => {
+    const t = crowd('chiikawa', ['hachiware'], { roam: 'free', mode: 'auto', speech: 'all', tricks: true });
+    t.run(300);
+    t.stage.setSides(sidesFrom([WINDOW]));
+    dropOnto(t, 'chiikawa', 480, 300);
+    dropOnto(t, 'hachiware', 1020, 300);
+    t.run(1500);
+    expect(t.stage.attachments).toEqual([
+      { id: 'chiikawa', at: 'w' },
+      { id: 'hachiware', at: 'w' },
+    ]);
+    expect(t.stage.followed).toEqual(['w']);
+    // the window is minimized: it is not in the list any more (as the system's reading of the windows leaves it out)
+    t.stage.setSides([]);
+    t.run(1200);
+    expect(t.stage.attachments).toEqual([
+      { id: 'chiikawa', at: null },
+      { id: 'hachiware', at: null },
+    ]);
+    expect(t.stage.followed).toEqual([]);
+    for (const id of ['chiikawa', 'hachiware']) {
+      expect(viewOf(t, id).state, id).not.toBe('peek');
+      expect(viewOf(t, id).y, id).toBeGreaterThan(300 + 50);
+    }
+    // and they go on with their lives: nothing holds them at the edge that is gone
+    t.run(8000);
+    for (const id of ['chiikawa', 'hachiware']) expect(viewOf(t, id).state, id).not.toBe('peek');
+    expect(t.stage.attachments.map((a) => a.at)).toEqual([null, null]);
   });
 
   it('tells every pet about the edges, also one that comes after', () => {

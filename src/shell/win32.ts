@@ -71,7 +71,7 @@ export function createWin32Lister(koffi: Koffi, ownPid: number): (() => RawWindo
     if (dwmRect(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, frame, 16) !== 0 && !getRect(hwnd, frame)) return null;
     const { left, top, right, bottom } = frame;
     if (left === undefined || top === undefined || right === undefined || bottom === undefined) return null;
-    return { id: String(hwnd), left, top, right, bottom, title };
+    return { id: String(hwnd), left, top, right, bottom, title, className };
   };
 
   const list = (): RawWindow[] => {

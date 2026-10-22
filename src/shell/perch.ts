@@ -10,6 +10,8 @@ export interface RawWindow {
   bottom: number;
   /** the title bar's text, for the log and the checks (the pets do not need it) */
   title?: string;
+  /** the kind of window the system says it is (the class name), for the log: which program a pet hid at */
+  className?: string;
 }
 
 /** Where the windows of other programs come from. The system's is Windows only; the end-to-end tests bring their own. */

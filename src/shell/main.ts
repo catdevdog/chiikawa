@@ -89,6 +89,8 @@ let perchSource: WindowSource | null = null;
 let systemSource: WindowSource | null = null;
 /** the windows as the last look found them (and the quick looks at the ones that are followed kept up to date) */
 let windowBoxes: WindowBox[] = [];
+/** the kind (class name) of each window the last full look found, for the log only: which program a pet hid at */
+let windowClasses = new Map<string, string>();
 /** the made-up windows of the end-to-end tests, while there are any */
 let fakeWindows: RawWindow[] | null = null;
 /** how the pets move the real mouse cursor (Windows only; null where they cannot) */
@@ -200,8 +202,18 @@ function startLoop(): void {
 /** Looks at the windows of other programs and tells the pets where they can stand. Nothing happens while the setting is off. */
 function pollPerch(): void {
   if (!settings.windows || stage.isHidden || !perchSource) return;
+  const source = perchSource;
   try {
-    publishWindows(boxesFrom(perchSource));
+    publishWindows(
+      boxesFrom({
+        ...source,
+        list: () => {
+          const raw = source.list();
+          windowClasses = new Map(raw.flatMap((w) => (w.className ? [[w.id, w.className] as const] : [])));
+          return raw;
+        },
+      }),
+    );
   } catch (err) {
     // give it up for this run rather than failing five times a second
     log('error', `could not read the windows: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
@@ -210,6 +222,9 @@ function pollPerch(): void {
     void rebuildMenu();
   }
 }
+
+/** A line of the log about windows, with the kind of each window said after its id (as far as it is known). */
+const aboutWindows = (message: string): string => message.replace(/\bwindow (\d+)/g, (found, id: string) => (windowClasses.has(id) ? `${found} (${windowClasses.get(id)})` : found));
 
 /** The windows the pets know about: the tops to stand on and the sides to hide at. */
 function publishWindows(boxes: WindowBox[]): void {
@@ -239,7 +254,7 @@ function followWindows(): void {
       const f = fresh.get(b.id);
       if (!f) {
         // a window that a pet goes along with is not one to stand on any more (closed, minimized, hidden)
-        log('info', `windows: the window ${b.id} that a pet goes along with is not listed any more`);
+        log('info', aboutWindows(`windows: the window ${b.id} that a pet goes along with is not listed any more`));
         changed = true;
         continue;
       }
@@ -676,7 +691,7 @@ async function boot(): Promise<void> {
   stageDeps = {
     cursor: () => screen.getCursorScreenPoint(),
     covered: makerCovers,
-    log: (message) => log('info', message),
+    log: (message) => log('info', aboutWindows(message)),
     ...(cursorControl ? { setCursor: moveCursor, cursorBusy: () => cursorControl?.busy() ?? false } : {}),
   };
   stage = new Stage(stageDeps, settings);
