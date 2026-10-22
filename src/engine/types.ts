@@ -103,7 +103,10 @@ export type SayEvent =
   | 'meet'
   | 'reply'
   | 'peek'
-  | 'found';
+  | 'found'
+  | 'attention'
+  | 'tug'
+  | 'caught';
 
 /** What happens on the computer that the pet notices: the user is back, the charger goes in or out, the battery runs low. */
 export type NoticeEvent = 'welcome' | 'plug' | 'unplug' | 'lowBattery';
@@ -160,6 +163,9 @@ export const SAY_EVENTS: readonly SayEvent[] = [
   'reply',
   'peek',
   'found',
+  'attention',
+  'tug',
+  'caught',
 ];
 
 export interface Line {

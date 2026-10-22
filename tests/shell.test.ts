@@ -49,8 +49,8 @@ describe('sanitizeSettings', () => {
   });
 
   it('keeps valid values and clamps the scale', () => {
-    const s = sanitizeSettings({ mode: 'attach', roam: 'floor', skin: 'my-skin', scale: 99, clickThrough: true, autoStart: true, autoUpdate: false, monitor: '2528732444', speech: 'reactions', tricks: false, friends: ['usagi', 'rakko'], windows: false });
-    expect(s).toEqual({ mode: 'attach', roam: 'floor', skin: 'my-skin', scale: 4, clickThrough: true, autoStart: true, autoUpdate: false, monitor: '2528732444', speech: 'reactions', tricks: false, friends: ['usagi', 'rakko'], windows: false });
+    const s = sanitizeSettings({ mode: 'attach', roam: 'floor', skin: 'my-skin', scale: 99, clickThrough: true, autoStart: true, autoUpdate: false, monitor: '2528732444', speech: 'reactions', tricks: false, friends: ['usagi', 'rakko'], windows: false, attention: true });
+    expect(s).toEqual({ mode: 'attach', roam: 'floor', skin: 'my-skin', scale: 4, clickThrough: true, autoStart: true, autoUpdate: false, monitor: '2528732444', speech: 'reactions', tricks: false, friends: ['usagi', 'rakko'], windows: false, attention: true });
     expect(sanitizeSettings({ scale: 0.01 }).scale).toBe(0.25);
   });
 
@@ -76,6 +76,15 @@ describe('sanitizeSettings', () => {
     for (const windows of ['no', 0, null, [], {}]) expect(sanitizeSettings({ windows }).windows).toBe(true);
     // the setting of the version that had this as an experiment (off unless asked for) is not carried over
     expect(sanitizeSettings({ perch: false }).windows).toBe(true);
+  });
+
+  it('does not look for attention unless that was asked for (it is an experiment)', () => {
+    expect(sanitizeSettings({}).attention).toBe(false);
+    expect(sanitizeSettings({ attention: true }).attention).toBe(true);
+    expect(sanitizeSettings({ attention: false }).attention).toBe(false);
+    // anything else is not a choice: the experiment stays off
+    for (const attention of ['yes', 1, null, [], {}]) expect(sanitizeSettings({ attention }).attention).toBe(false);
+    expect(DEFAULT_SETTINGS.attention).toBe(false);
   });
 
   it('keeps a list of friends that are skins, each once, without the main character, up to the limit', () => {

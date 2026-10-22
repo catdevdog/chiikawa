@@ -21,6 +21,8 @@ export interface Settings {
   friends: string[];
   /** the pets go about the windows of other programs: they sit on the top edge, look over it, and hide at the sides (Windows only) */
   windows: boolean;
+  /** an experiment: a pet that has been left alone for long looks for attention, and pulls the mouse cursor away with it (Windows only) */
+  attention: boolean;
 }
 
 /** How many friends a pet can have (so the screens hold at most one more than this). */
@@ -39,6 +41,7 @@ export const DEFAULT_SETTINGS: Settings = {
   tricks: true,
   friends: [],
   windows: true,
+  attention: false,
 };
 
 export interface SkinInfo {

@@ -13,7 +13,7 @@ import {
   type WindowFacts,
   type WindowSource,
 } from '../src/shell/perch';
-import { createWin32Lister, type Koffi } from '../src/shell/win32';
+import { createWin32Cursor, createWin32Lister, type Koffi } from '../src/shell/win32';
 
 const box = (id: string, x: number, y: number, w: number, h: number): WindowBox => ({ id, x, y, w, h });
 
@@ -283,6 +283,93 @@ describe('the windows of the system', () => {
     expect(text).toContain('bool __stdcall EnumWindows(EnumWindowsProc *cb, intptr_t lparam)');
     expect(text).toContain('GetWindowThreadProcessId(intptr_t hwnd, _Out_ uint32_t *pid)');
     expect(text).toContain('_Out_ RECT *value');
+    for (const line of declared) expect(line).toMatch(/__stdcall/);
+  });
+});
+
+describe('the mouse of the system', () => {
+  /** A stand-in for koffi that answers as the system's functions do (a short with its top bit set is a key that is down). */
+  function fakeMouseKoffi(opts: { down?: number[]; state?: number; hr?: number; refuse?: boolean } = {}): { koffi: Koffi; set: [number, number][]; asked: () => number; declared: string[] } {
+    const set: [number, number][] = [];
+    const declared: string[] = [];
+    let asked = 0;
+    const fns: Record<string, (...a: any[]) => any> = {
+      SetCursorPos: (x: number, y: number) => {
+        set.push([x, y]);
+        return opts.refuse ? 0 : 1;
+      },
+      GetAsyncKeyState: (key: number) => (opts.down?.includes(key) ? -32768 : 0),
+      SHQueryUserNotificationState: (out: number[]) => {
+        asked++;
+        out[0] = opts.state ?? 5;
+        return opts.hr ?? 0;
+      },
+    };
+    const koffi: Koffi = {
+      load: () => ({
+        func: (signature: string) => {
+          declared.push(signature);
+          const name = /(\w+)\s*\(/.exec(signature)![1]!;
+          const fn = fns[name];
+          if (!fn) throw new Error(`unknown function ${name}`);
+          return fn;
+        },
+      }),
+      struct: () => ({}),
+      proto: () => ({}),
+    };
+    return { koffi, set, asked: () => asked, declared };
+  }
+
+  it('puts the cursor at a whole pixel of the screen, and says whether the system did it', () => {
+    const a = fakeMouseKoffi();
+    expect(createWin32Cursor(a.koffi).set(100.4, 250.6)).toBe(true);
+    expect(a.set).toEqual([[100, 251]]);
+    const b = fakeMouseKoffi({ refuse: true });
+    expect(createWin32Cursor(b.koffi).set(5, 5)).toBe(false);
+  });
+
+  it('says the mouse is in use while any of its buttons is down', () => {
+    expect(createWin32Cursor(fakeMouseKoffi().koffi).busy()).toBe(false);
+    // left, right, middle, and the two side buttons
+    for (const key of [0x01, 0x02, 0x04, 0x05, 0x06]) expect(createWin32Cursor(fakeMouseKoffi({ down: [key] }).koffi).busy(), `key ${key}`).toBe(true);
+    // another key (a letter) is nothing to do with the mouse
+    expect(createWin32Cursor(fakeMouseKoffi({ down: [0x41] }).koffi).busy()).toBe(false);
+  });
+
+  it('says the mouse is in use while a program has the whole screen, or nobody is at it', () => {
+    // 5 is the ordinary state, 6 quiet hours (nothing to do with the screen)
+    for (const state of [5, 6]) expect(createWin32Cursor(fakeMouseKoffi({ state }).koffi).busy(), `state ${state}`).toBe(false);
+    // away from the screen, a full screen program, a game, a presentation, a store app
+    for (const state of [1, 2, 3, 4, 7]) expect(createWin32Cursor(fakeMouseKoffi({ state }).koffi).busy(), `state ${state}`).toBe(true);
+    // when the system cannot say, the screen is not taken for one in use
+    expect(createWin32Cursor(fakeMouseKoffi({ state: 3, hr: -2147467259 }).koffi).busy()).toBe(false);
+  });
+
+  it('asks about the screen twice a second at most, but about the buttons every time', () => {
+    const f = fakeMouseKoffi({ state: 2 });
+    let now = 10_000;
+    const mouse = createWin32Cursor(f.koffi, () => now);
+    for (let i = 0; i < 30; i++) {
+      expect(mouse.busy()).toBe(true);
+      now += 16;
+    }
+    // 30 steps of 16 ms are under a second: asked at the start, and once more when 500 ms had gone by
+    expect(f.asked()).toBe(1 + Math.floor((30 * 16) / 500));
+    const g = fakeMouseKoffi({ down: [0x01] });
+    const quick = createWin32Cursor(g.koffi, () => now);
+    expect(quick.busy()).toBe(true);
+    expect(g.asked()).toBe(0);
+  });
+
+  it('declares the functions it uses with the types the system expects', () => {
+    const { koffi, declared } = fakeMouseKoffi();
+    createWin32Cursor(koffi);
+    const text = declared.join('\n');
+    expect(text).toContain('int32_t __stdcall SetCursorPos(int x, int y)');
+    // a short: the top bit is "down right now" (read as a one byte bool it would be lost)
+    expect(text).toContain('int16_t __stdcall GetAsyncKeyState(int key)');
+    expect(text).toContain('SHQueryUserNotificationState(_Out_ int32_t *state)');
     for (const line of declared) expect(line).toMatch(/__stdcall/);
   });
 });

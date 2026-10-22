@@ -21,6 +21,22 @@ import {
   type SpeechLevel,
   type Vec2,
 } from './types';
+import {
+  approach,
+  ATTENTION_AFTER_MS,
+  ATTENTION_CHANCE,
+  ATTENTION_COOLDOWN_MS,
+  ATTENTION_RETRY_MS,
+  BEG_MS,
+  BREAK_PX,
+  Deviation,
+  GO_MS,
+  PULL_MIN,
+  PULL_MS,
+  PULL_SPEED,
+  REEL_SPEED,
+  STILL_MS,
+} from './attention';
 import { defaultHang, defaultPeek, type HangLayout, type PeekLayout, type Wall } from './peek';
 import { planHop, windowOf } from './perch';
 import { Region, type Reach } from './region';
@@ -122,6 +138,22 @@ interface Hiding {
   lost: number;
 }
 
+/** An outing to get attention: running up to the mouse, waiting beside it for it to be still, pulling it away. */
+interface Tug {
+  phase: 'go' | 'beg' | 'pull';
+  /** how long it has been in this phase */
+  ms: number;
+  /** where the pull is heading */
+  goal: Vec2 | null;
+  /** where the cursor was put last, and how far a hand has taken it from there since */
+  put: Vec2 | null;
+  away: Deviation;
+  /** how long nobody had touched the pet at the last step (it gets smaller when somebody does) */
+  lastIgnored: number;
+  /** ms until it calls out again while it waits */
+  callIn: number;
+}
+
 export class Pet {
   mode: Mode;
   /** Mutated in place on every update; read it, do not keep it. */
@@ -185,6 +217,17 @@ export class Pet {
   /** a triple click, and a click on a pet that hides, waiting to be taken by whoever runs the pets */
   private tripled = false;
   private found = false;
+  /**
+   * looking for attention (the user's choice): how long nobody has touched or called the pet, the time before which it does
+   * not set out again, and the outing it is on; whether the mouse is in use for something else (it is left alone then), and
+   * where the pet wants the cursor now (for whoever moves the real one to take)
+   */
+  private attention = false;
+  private ignoredMs = 0;
+  private attentionAt = 0;
+  private tug: Tug | null = null;
+  private cursorBusy = false;
+  private cursorTo: Vec2 | null = null;
 
   private cursor: Vec2 | null = null;
   private prevCursor: Vec2 | null = null;
@@ -365,6 +408,43 @@ export class Pet {
   /** Whether the pet does its actions now and then on its own. */
   setTricks(on: boolean): void {
     this.tricks = on;
+  }
+
+  /**
+   * Whether a pet that has been left alone for long looks for attention (it runs up to the mouse, waits beside it until the
+   * mouse is still, and pulls the cursor away with it): the user's choice, and only where the cursor can be moved.
+   */
+  setAttention(on: boolean): void {
+    this.attention = on;
+    if (!on) this.endTug('abort');
+  }
+
+  /** The mouse is in use for something else (a button is down, a program has the whole screen): the pet leaves it alone. */
+  setCursorBusy(busy: boolean): void {
+    this.cursorBusy = busy;
+  }
+
+  /** Where the pet wants the mouse cursor to be now (null: it is not holding it); taken once, by whoever moves the real cursor. */
+  takeCursorGoal(): Vec2 | null {
+    const goal = this.cursorTo;
+    this.cursorTo = null;
+    return goal;
+  }
+
+  /** Is the pet out to get attention: on its way to the mouse, waiting beside it, or pulling it? */
+  get seekingAttention(): boolean {
+    return this.tug !== null;
+  }
+
+  /**
+   * Sets out to get attention now, as if the pet had been left alone for long enough. False when it cannot: the choice is
+   * off, there is no mouse to go to or it is in use, the pet is in someone's hand, on a window, hiding, asleep or busy.
+   * (For tests and diagnostics.)
+   */
+  seekAttention(): boolean {
+    this.ignoredMs = Math.max(this.ignoredMs, ATTENTION_AFTER_MS);
+    this.attentionAt = 0;
+    return this.startTug();
   }
 
   /**
@@ -587,6 +667,126 @@ export class Pet {
     return false;
   }
 
+  // --- looking for attention ------------------------------------------------------------
+
+  /** Now and then, when it has just decided what to do next, a pet that has been left alone for long sets out to get attention. */
+  private maybeAttention(): boolean {
+    if (this.ignoredMs < ATTENTION_AFTER_MS || this.time < this.attentionAt) return false;
+    if (!this.canSeekAttention() || this.rng() >= ATTENTION_CHANCE) return false;
+    return this.startTug();
+  }
+
+  /** The choice is on, the mouse is there and not in use, and the pet is on the floor (or free to go anywhere) with nothing else to do. */
+  private canSeekAttention(): boolean {
+    const free = this.state === 'idle' || this.state === 'sit' || this.state === 'walk';
+    return this.attention && !this.tug && !this.cursorBusy && this.cursor !== null && free && !this.peek && !this.holder && !this.summoned && this.mode !== 'attach' && this.perch === null && this.press === null;
+  }
+
+  private startTug(): boolean {
+    if (!this.canSeekAttention()) return false;
+    this.tug = { phase: 'go', ms: 0, goal: null, put: null, away: new Deviation(), lastIgnored: this.ignoredMs, callIn: 0 };
+    this.target = null;
+    this.say('attention');
+    this.enter('run');
+    return true;
+  }
+
+  /** One step of an outing. False when it is over: the pet goes on as it does, and whatever ended it (a touch, a call) takes over. */
+  private stepTug(dt: number): boolean {
+    const t = this.tug!;
+    const c = this.cursor;
+    const onFeet = this.state === 'idle' || this.state === 'sit' || this.state === 'walk' || this.state === 'run';
+    const aloft = this.cfg.roam === 'floor' && this.standingOn() === null && this.pos.y < this.region.floor(this.pos, this.reach()) - 1;
+    // somebody touched or called the pet, picked it up, or it is in the air, hiding or busy: the outing is off
+    if (!onFeet || aloft || this.peek || this.holder || this.summoned || this.press || this.mode === 'attach' || this.ignoredMs < t.lastIgnored || !c || !this.attention || this.cursorBusy) {
+      this.endTug('abort');
+      return false;
+    }
+    t.lastIgnored = this.ignoredMs;
+    t.ms += dt;
+    if (t.phase === 'go') {
+      const floor = this.cfg.roam === 'floor';
+      const d = floor ? Math.abs(c.x - this.center().x) : dist(this.center(), c);
+      const stop = this.k(this.cfg.followStop);
+      if (d > stop + 2 && t.ms <= GO_MS) {
+        this.enter('run');
+        this.moveToward(this.goalBeside(c, d, stop), this.k(this.cfg.runSpeed), dt);
+        return true;
+      }
+      t.phase = 'beg';
+      t.ms = 0;
+      t.callIn = 1500;
+      this.target = null;
+      this.enter('idle');
+    }
+    if (t.phase === 'beg') {
+      this.facing = c.x >= this.pos.x ? 1 : -1;
+      if (this.cursorIdleMs < STILL_MS) {
+        if (t.ms > BEG_MS) {
+          this.endTug('gaveUp');
+          return true;
+        }
+        t.callIn -= dt;
+        if (t.callIn <= 0) {
+          t.callIn = 3500 + this.rng() * 2500;
+          this.say('attention');
+        }
+        return true;
+      }
+      // the mouse is still: it takes hold of it
+      t.phase = 'pull';
+      t.ms = 0;
+      t.goal = this.pullGoal();
+      this.say('tug');
+    }
+    // pulling: the cursor is held at the pet's back as it walks away with it
+    const goal = t.goal!;
+    const dir = goal.x >= this.pos.x ? 1 : -1;
+    const { left, right } = this.reach();
+    const hand = { x: this.pos.x - dir * ((dir === 1 ? left : right) + this.k(14)), y: this.center().y };
+    // somebody moved the mouse: it is theirs again
+    if (t.put && t.away.add(c, t.put, dt) > BREAK_PX) {
+      this.endTug('caught');
+      return true;
+    }
+    const next = approach(c, hand, (REEL_SPEED * dt) / 1000);
+    this.cursorTo = next;
+    t.put = next;
+    this.enter('walk');
+    if (this.moveToward(goal, this.k(this.cfg.walkSpeed) * PULL_SPEED, dt) || t.ms > PULL_MS) this.endTug('done');
+    return true;
+  }
+
+  /** Where the pull goes: well away from where the pet is. */
+  private pullGoal(): Vec2 {
+    const free = this.cfg.roam === 'free';
+    const reach = this.reach();
+    let goal: Vec2 = this.pos;
+    for (let i = 0; i < 8 && dist(goal, this.pos) < PULL_MIN; i++) goal = this.region.pick(this.rng, reach, free);
+    return goal;
+  }
+
+  /** The outing is over: it got where it was going (`done`), somebody took the mouse back (`caught`), nobody came (`gaveUp`), or something else came first (`abort`). */
+  private endTug(how: 'done' | 'caught' | 'gaveUp' | 'abort'): void {
+    if (!this.tug) return;
+    this.tug = null;
+    this.cursorTo = null;
+    this.target = null;
+    const [lo, hi] = ATTENTION_COOLDOWN_MS;
+    this.attentionAt = this.time + (how === 'gaveUp' ? ATTENTION_RETRY_MS : lo + this.rng() * (hi - lo));
+    this.decideIn = 1200 + this.rng() * 1500;
+    if (how === 'abort') {
+      // what ended it sets the state; a pet that was only on its way just stops
+      if (this.state === 'walk' || this.state === 'run') this.enter('idle');
+    } else if (how === 'gaveUp') {
+      this.enter('sit');
+      this.decideIn = 3000 + this.rng() * 2000;
+    } else {
+      this.react(how === 'caught' ? 'surprised' : 'happy');
+      this.say('caught');
+    }
+  }
+
   // --- looking over the top edge of a window ------------------------------------------
 
   /** Now and then, when it has just decided what to do next, a pet that stands on a window looks over the top edge of it for a while (no random numbers are used when it does not stand on one). */
@@ -721,6 +921,7 @@ export class Pet {
     this.target = null;
     this.fleeDir = null;
     this.interactionIdleMs = 0;
+    this.ignoredMs = 0;
     if (this.state === 'sleep') this.rouse();
     if (dist(this.pos, c) > this.k(CALL_FAR) || this.region.indexAt(this.pos) !== this.region.indexAt(c)) this.dropIn(c);
   }
@@ -744,6 +945,7 @@ export class Pet {
 
   setMode(mode: Mode): void {
     if (mode === this.mode) return;
+    this.endTug('abort');
     if (this.peek) this.cancelPeek();
     const wasAttached = this.mode === 'attach';
     this.mode = mode;
@@ -784,8 +986,8 @@ export class Pet {
       if (this.dragging) this.dragTo(p);
       return;
     }
-    // a pet that hides takes no notice of the pointer until it is clicked
-    if (this.peek || this.state === 'hang') return;
+    // a pet that hides takes no notice of the pointer until it is clicked; one that pulls at the mouse is holding the cursor itself
+    if (this.peek || this.state === 'hang' || this.tug?.phase === 'pull') return;
     const over = this.isOver(p);
     if (over && !this.hover) this.onHoverEnter(p);
     this.hover = over;
@@ -799,6 +1001,7 @@ export class Pet {
     if (!this.canInteract() || !this.isOver(p)) return;
     this.press = { x: p.x, y: p.y };
     this.interactionIdleMs = 0;
+    this.ignoredMs = 0;
   }
 
   pointerUp(p: Vec2): void {
@@ -824,7 +1027,11 @@ export class Pet {
       this.trackCursor(dt);
       this.stepParticles(dt);
       this.followPerch(dt);
-      switch (this.state) {
+      this.ignoredMs += dt;
+      // out to get attention: nothing else is done until that is over
+      if (this.tug && this.stepTug(dt)) {
+        // (the step is taken)
+      } else switch (this.state) {
         case 'held':
           this.stepHeld(dt);
           break;
@@ -1041,6 +1248,7 @@ export class Pet {
     if (this.maybeAct()) return;
     if (this.maybeHop()) return;
     if (this.maybeHang()) return;
+    if (this.maybeAttention()) return;
     const r = this.rng();
     if (r < 0.55) {
       this.target = this.pickTarget();
@@ -1463,6 +1671,7 @@ export class Pet {
   }
 
   private onHoverEnter(p: Vec2): void {
+    this.ignoredMs = 0;
     this.facing = p.x >= this.pos.x ? 1 : -1;
     if (this.state === 'sleep') {
       this.react('surprised');

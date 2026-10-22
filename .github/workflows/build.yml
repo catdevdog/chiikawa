@@ -96,6 +96,11 @@ jobs:
           $window = Start-Process powershell -PassThru -ArgumentList '-NoProfile', '-File', 'scripts/win32-smoke-window.ps1'
           Start-Sleep -Seconds 20
           try { node scripts/win32-minimize-check.mjs --all } finally { Stop-Process -Id $window.Id -Force -ErrorAction SilentlyContinue }
+      # the experiment in which a pet pulls at the mouse moves the real cursor: it is put at a few places and read back
+      - name: Check that the cursor can be moved
+        continue-on-error: true
+        shell: pwsh
+        run: node scripts/win32-cursor-check.mjs
       # the app itself next to a real window, with the real mouse: a pet is put down beside the window and hides there, and the window is
       # moved, minimized, restored and closed; it only tells (what the app knew at each moment is written to the log)
       - name: Check the app with a real window

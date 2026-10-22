@@ -26,6 +26,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     tricks: typeof r.tricks === 'boolean' ? r.tricks : d.tricks,
     friends: sanitizeFriends(r.friends, skin),
     windows: typeof r.windows === 'boolean' ? r.windows : d.windows,
+    attention: r.attention === true,
   };
 }
 

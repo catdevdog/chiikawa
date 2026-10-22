@@ -105,6 +105,60 @@ export function createWin32Lister(koffi: Koffi, ownPid: number): (() => RawWindo
   return Object.assign(list, { frames });
 }
 
+/** What the experiment in which a pet pulls at the mouse needs of the system. */
+export interface CursorControl {
+  /** Puts the cursor at a point of the screen (in its pixels, not the pets' coordinates); false when the system refuses. */
+  set(x: number, y: number): boolean;
+  /** A mouse button is down, or a program has the whole screen (a game, a film, a presentation): the pet leaves the mouse alone. */
+  busy(): boolean;
+}
+
+/** The keys of the mouse: left, right, middle, and the two side buttons. */
+const MOUSE_KEYS = [0x01, 0x02, 0x04, 0x05, 0x06];
+/**
+ * What `SHQueryUserNotificationState` says about the screen: 1 nobody is at it (locked, a screen saver), 2 a program has the
+ * whole screen or a presentation is on, 3 a game has it, 4 a presentation, 7 a store app has it. (5 is the ordinary state, 6 quiet hours.)
+ */
+const SCREEN_TAKEN = [1, 2, 3, 4, 7];
+/** The screen is asked about this often at most (ms): the answer does not change quickly, and the call is the dearest. */
+const SCREEN_ASK_MS = 500;
+
+/** Declares the system's functions that move the cursor and tell that the mouse is in use, once; the returned object is what to call. */
+export function createWin32Cursor(koffi: Koffi, now: () => number = Date.now): CursorControl {
+  const user32 = koffi.load('user32.dll');
+  const shell32 = koffi.load('shell32.dll');
+  const setCursorPos = user32.func('int32_t __stdcall SetCursorPos(int x, int y)');
+  const keyState = user32.func('int16_t __stdcall GetAsyncKeyState(int key)');
+  const screenState = shell32.func('int32_t __stdcall SHQueryUserNotificationState(_Out_ int32_t *state)');
+  let askedAt = -Infinity;
+  let taken = false;
+  return {
+    set: (x, y) => setCursorPos(Math.round(x), Math.round(y)) !== 0,
+    busy: () => {
+      // the top bit of the answer is "down right now"
+      for (const key of MOUSE_KEYS) if ((keyState(key) & 0x8000) !== 0) return true;
+      const t = now();
+      if (t - askedAt >= SCREEN_ASK_MS) {
+        askedAt = t;
+        const state = [0];
+        taken = screenState(state) === 0 && SCREEN_TAKEN.includes(state[0] ?? 0);
+      }
+      return taken;
+    },
+  };
+}
+
+/** The system's way to move the cursor, or null where that is not possible (not Windows, or koffi could not be loaded). */
+export function openWin32Cursor(warn: (message: string) => void): CursorControl | null {
+  if (process.platform !== 'win32') return null;
+  try {
+    return createWin32Cursor(require('koffi') as Koffi);
+  } catch (err) {
+    warn(`the cursor cannot be moved: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+}
+
 /**
  * The system's windows, or null where that is not possible: not Windows, or the library that calls the system could
  * not be loaded. Nothing else in the app depends on it.

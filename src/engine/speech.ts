@@ -101,6 +101,10 @@ const RULES: Record<SayEvent, Rule> = {
   // hiding at a wall: it talks to itself now and then, and says so when it is found
   peek: { chance: 1, cooldown: 6_000, murmur: true },
   found: { chance: 1, cooldown: 1_000, urgent: true },
+  // looking for attention (a pet that has been ignored for long): calling out, pulling at the mouse, and being caught at it
+  attention: { chance: 1, cooldown: 20_000, murmur: true },
+  tug: { chance: 1, cooldown: 4_000, murmur: true },
+  caught: { chance: 1, cooldown: 3_000, urgent: true },
   // the user asked for the pet, or the computer did something: always answered, even over other words
   call: { chance: 1, cooldown: 1_500, urgent: true },
   // an unlock and a wake from sleep come one after the other, and a loose plug flickers

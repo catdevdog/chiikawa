@@ -20,6 +20,10 @@ export interface StageDeps {
   cursor(): Vec2;
   /** true while another window of ours is in front of the pet at this point, so the clicks must reach that window */
   covered(p: Vec2): boolean;
+  /** Moves the real mouse cursor to a point of the shared space (the experiment in which a pet looks for attention); absent where that cannot be done. */
+  setCursor?(p: Vec2): void;
+  /** Is the mouse in use for something else (a button is down, a program has the whole screen)? The pet leaves it alone then. */
+  cursorBusy?(): boolean;
   rng?: () => number;
 }
 
@@ -110,6 +114,16 @@ export class Stage {
   /** Makes the main character say something for a situation, as if it had just happened (for tests and diagnostics). */
   say(event: SayEvent): void {
     this.members[0]?.pet.say(event);
+  }
+
+  /** Sends the main character out to get attention now, as if it had been left alone for long; false when it cannot go. For tests and diagnostics. */
+  seekAttention(): boolean {
+    return !this.hidden && (this.members[0]?.pet.seekAttention() ?? false);
+  }
+
+  /** Is the main character out to get attention? For tests and diagnostics. */
+  get seekingAttention(): boolean {
+    return this.members[0]?.pet.seekingAttention ?? false;
   }
 
   get isHidden(): boolean {
@@ -280,6 +294,8 @@ export class Stage {
     this.last = now;
     const c = this.deps.cursor();
     const covered = this.deps.covered(c);
+    // is the mouse in use for something else? (asked only while the experiment is on: it costs a few calls of the system)
+    const busy = this.settings.attention && (this.deps.cursorBusy?.() ?? false);
 
     // hover, rubbing and drags follow the polled pointer: the windows only report the buttons. Only the pet in
     // front (or the one being held) feels the pointer; the others are left alone by it.
@@ -302,7 +318,11 @@ export class Stage {
       dt,
       this.members.map((m) => ({ id: m.id, pet: m.pet })),
     );
+    this.members[0]?.pet.setCursorBusy(busy);
     for (const m of this.members) m.pet.update(dt);
+    // a pet that pulls at the mouse takes the cursor where it wants it
+    const goal = this.members[0]?.pet.takeCursorGoal();
+    if (goal && this.deps.setCursor) this.deps.setCursor(goal);
     if (this.pressed && !this.pressed.member.pet.pressed) this.pressed = null;
 
     for (const m of this.members) this.measure(m, dt);
@@ -351,7 +371,11 @@ export class Stage {
 
   /** Clears every window and lets the mouse through; a pet in someone's hand is let go. */
   private putAway(): void {
-    for (const m of this.members) m.pet.cancelPointer();
+    for (const m of this.members) {
+      m.pet.cancelPointer();
+      // a pet that was out for attention is not holding the cursor any more
+      m.pet.setAttention(false);
+    }
     this.pressed = null;
     for (const [win, st] of this.windows) {
       if (st.present.size > 0) win.send([]);
@@ -367,6 +391,7 @@ export class Stage {
   private resume(): void {
     this.last = Number.NaN;
     for (const m of this.members) m.sent.state = '';
+    this.members[0]?.pet.setAttention(this.settings.attention && this.deps.setCursor !== undefined);
   }
 
   /**
@@ -457,6 +482,8 @@ export class Stage {
     const m: Member = { id, pet, skin, from: null, v: { x: 0, y: 0 }, sent: { state: '', facing: 0, interactive: false, scale: 0, particles: 0 }, sentAt: -Infinity };
     pet.setSpeech(s.speech);
     pet.setTricks(s.tricks);
+    // only the main character (the one that is not a friend) looks for attention, and only where the cursor can be moved
+    pet.setAttention(standing === null && s.attention && this.deps.setCursor !== undefined);
     pet.setLines(skin.lines);
     pet.setActions(skin.actions);
     pet.setInteractive(!s.clickThrough);
@@ -476,6 +503,8 @@ export class Stage {
   private apply(m: Member, main: boolean): void {
     const s = this.settings;
     const pet = m.pet;
+    // only the main character is about the mouse, and only where the cursor can be moved
+    pet.setAttention(main && s.attention && this.deps.setCursor !== undefined);
     // only the main character is about the mouse; its friends go about on their own
     pet.setMode(main ? s.mode : 'wander');
     pet.setScale(s.scale * this.fit(m), s.scale);

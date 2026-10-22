@@ -1323,3 +1323,143 @@ describe('hiding at the side of a window', () => {
     ]);
   });
 });
+
+describe('a pet that looks for attention (an experiment that moves the real cursor)', () => {
+  const ATTENTION: Settings = { ...SETTINGS, roam: 'free', attention: true };
+
+  /** a stage with one screen and a mouse that the pets may move (`withCursor`), and what was put where */
+  function mouse(settings: Settings = ATTENTION, withCursor = true) {
+    const win = new FakeWindow(LEFT);
+    const env = { cursor: { x: 900, y: 300 } as Vec2, busy: false, puts: [] as Vec2[] };
+    const stage = new Stage(
+      {
+        cursor: () => env.cursor,
+        covered: () => false,
+        rng: mulberry32(3),
+        ...(withCursor
+          ? {
+              setCursor: (p: Vec2) => {
+                env.cursor = { x: p.x, y: p.y };
+                env.puts.push({ x: p.x, y: p.y });
+              },
+              cursorBusy: () => env.busy,
+            }
+          : {}),
+      },
+      settings,
+    );
+    stage.setWindows([win]);
+    stage.setSkin(GEOMETRY);
+    let now = 1000;
+    const run = (ms: number): void => {
+      for (let t = 0; t < ms; t += 16) {
+        now += 16;
+        stage.tick(now);
+      }
+    };
+    run(200);
+    return { stage, env, run, win };
+  }
+
+  it('moves the cursor where the pet pulls it, a step at a time, and lets go when it is there', () => {
+    const { stage, env, run } = mouse();
+    expect(stage.seekAttention()).toBe(true);
+    expect(stage.seekingAttention).toBe(true);
+    const from = { ...env.cursor };
+    run(30_000);
+    expect(env.puts.length).toBeGreaterThan(20);
+    expect(Math.hypot(env.cursor.x - from.x, env.cursor.y - from.y)).toBeGreaterThan(300);
+    expect(stage.seekingAttention).toBe(false);
+    // no step of the cursor was a jump (900 px/s is 14.4 px a tick; the first is the cursor being brought up to the pet)
+    let last = from;
+    for (const p of env.puts) {
+      expect(Math.hypot(p.x - last.x, p.y - last.y)).toBeLessThanOrEqual(15);
+      last = p;
+    }
+  });
+
+  it('does not go out unless the user has chosen it', () => {
+    const { stage, env, run } = mouse({ ...ATTENTION, attention: false });
+    expect(stage.seekAttention()).toBe(false);
+    run(20_000);
+    expect(env.puts).toEqual([]);
+  });
+
+  it('does not go out where the cursor cannot be moved, whatever was chosen', () => {
+    const { stage, env, run } = mouse(ATTENTION, false);
+    expect(stage.seekAttention()).toBe(false);
+    run(20_000);
+    expect(env.cursor).toEqual({ x: 900, y: 300 });
+  });
+
+  it('follows the choice: turned off, a pet that has the cursor lets go of it', () => {
+    const { stage, env, run } = mouse();
+    stage.seekAttention();
+    // until it has taken hold
+    for (let i = 0; i < 600 && env.puts.length === 0; i++) run(16);
+    expect(env.puts.length).toBeGreaterThan(0);
+    stage.setSettings({ ...ATTENTION, attention: false });
+    expect(stage.seekingAttention).toBe(false);
+    const n = env.puts.length;
+    run(3000);
+    expect(env.puts.length).toBe(n);
+  });
+
+  it('leaves the mouse alone while it is in use: a button down, or a program with the whole screen', () => {
+    const { stage, env, run } = mouse();
+    env.busy = true;
+    // (the stage asks once a step)
+    run(32);
+    expect(stage.seekAttention()).toBe(false);
+    run(3000);
+    expect(env.puts).toEqual([]);
+    // and a pet that has taken hold lets go as soon as it is
+    env.busy = false;
+    run(32);
+    expect(stage.seekAttention()).toBe(true);
+    for (let i = 0; i < 600 && env.puts.length === 0; i++) run(16);
+    expect(env.puts.length).toBeGreaterThan(0);
+    env.busy = true;
+    run(32);
+    expect(stage.seekingAttention).toBe(false);
+    const n = env.puts.length;
+    run(3000);
+    expect(env.puts.length).toBe(n);
+  });
+
+  it('lets go when somebody moves the mouse', () => {
+    const { stage, env, run } = mouse();
+    stage.seekAttention();
+    for (let i = 0; i < 600 && env.puts.length === 0; i++) run(16);
+    env.cursor = { x: env.cursor.x + 60, y: env.cursor.y + 20 };
+    run(32);
+    expect(stage.seekingAttention).toBe(false);
+  });
+
+  it('stops when the pets are put away, and does not take up where it left off when they come back', () => {
+    const { stage, env, run } = mouse();
+    stage.seekAttention();
+    for (let i = 0; i < 600 && env.puts.length === 0; i++) run(16);
+    stage.setHidden(true);
+    expect(stage.seekingAttention).toBe(false);
+    const n = env.puts.length;
+    run(2000);
+    expect(env.puts.length).toBe(n);
+    stage.setHidden(false);
+    run(3000);
+    expect(env.puts.length).toBe(n);
+    expect(stage.seekingAttention).toBe(false);
+  });
+
+  it('is the main character that looks for attention, not its friends', () => {
+    const { stage, env, run } = mouse({ ...ATTENTION, friends: ['hachiware'] });
+    stage.setSkin({ ...GEOMETRY, id: 'hachiware' });
+    run(200);
+    expect(stage.views.map((v) => v.id)).toEqual(['default', 'hachiware']);
+    stage.seekAttention();
+    run(30_000);
+    expect(env.puts.length).toBeGreaterThan(0);
+    // one cursor, held by one pet at a time: never two steps in a tick
+    expect(env.puts.length).toBeLessThan(30_000 / 16);
+  });
+});

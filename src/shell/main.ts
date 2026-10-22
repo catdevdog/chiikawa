@@ -32,9 +32,9 @@ import { boxesFrom, platformsFrom, sidesFrom, type RawWindow, type WindowBox, ty
 import { safeJoin } from './safe-path';
 import { loadSettings, saveSettings } from './settings';
 import { ensureUserSkinsDir, listSkins, MIME, resolveSkinFile, userSkinsDir } from './skins';
-import { Stage } from './stage';
+import { Stage, type StageDeps } from './stage';
 import { createUpdates, type Updates } from './updater';
-import { openWin32Source } from './win32';
+import { openWin32Cursor, openWin32Source, type CursorControl } from './win32';
 import { announceChanges, releasePage, type Announced } from './whats-new';
 
 const APP_ID = 'io.github.catdevdog.desktop-buddy';
@@ -91,6 +91,13 @@ let systemSource: WindowSource | null = null;
 let windowBoxes: WindowBox[] = [];
 /** the made-up windows of the end-to-end tests, while there are any */
 let fakeWindows: RawWindow[] | null = null;
+/** how the pets move the real mouse cursor (Windows only; null where they cannot) */
+let cursorControl: CursorControl | null = null;
+/** what the stage is given to work with; the end-to-end tests put a cursor of their own in it */
+let stageDeps: StageDeps = { cursor: () => screen.getCursorScreenPoint(), covered: (p) => makerCovers(p) };
+/** the cursor of the end-to-end tests, while there is one: where it is, and whether it is in use for something else */
+let fakeCursor: { x: number; y: number } | null = null;
+let fakeBusy = false;
 
 /** The overlay window an IPC message came from; anything else (the skin maker, a stray frame) is refused. */
 function overlayOf(e: IpcMainEvent | IpcMainInvokeEvent): Overlay | undefined {
@@ -347,6 +354,12 @@ function update(patch: Partial<Settings>): void {
   void rebuildMenu();
 }
 
+/** A pet that pulls at the mouse moves the real cursor: a point of the pets' space, put where it is on the screen (which is scaled differently). */
+function moveCursor(p: { x: number; y: number }): void {
+  const at = screen.dipToScreenPoint({ x: p.x, y: p.y });
+  if (!cursorControl?.set(at.x, at.y)) log('warn', 'the cursor could not be moved');
+}
+
 function applyAutoStart(): void {
   // an unpackaged run would register the bare electron binary
   if (!app.isPackaged) return;
@@ -474,6 +487,10 @@ async function rebuildMenu(): Promise<void> {
     ...(perchSource
       ? [{ label: s.windows, type: 'checkbox', checked: settings.windows, click: (i) => update({ windows: i.checked }) } as MenuItemConstructorOptions]
       : []),
+    // an experiment, and only where the cursor can be moved (Windows)
+    ...(stageDeps.setCursor
+      ? [{ label: s.attention, type: 'checkbox', checked: settings.attention, click: (i) => update({ attention: i.checked }) } as MenuItemConstructorOptions]
+      : []),
     { label: s.autoStart, type: 'checkbox', checked: settings.autoStart, click: (i) => update({ autoStart: i.checked }) },
     // only a build that can update itself has something to switch off
     ...(updates?.mode === 'auto'
@@ -588,6 +605,38 @@ function exposeTestHooks(): void {
         return true;
       },
     },
+    /** a pet that pulls at the mouse: a cursor of the tests' own (not the real one) that the pets may move, and the pet sent out at once */
+    attention: {
+      fake: (at: { x: number; y: number } | null) => {
+        fakeCursor = at ? { x: at.x, y: at.y } : null;
+        fakeBusy = false;
+        stageDeps.cursor = () => fakeCursor ?? screen.getCursorScreenPoint();
+        if (fakeCursor) {
+          stageDeps.setCursor = (p) => {
+            fakeCursor = { x: p.x, y: p.y };
+          };
+          stageDeps.cursorBusy = () => fakeBusy;
+        } else if (cursorControl) {
+          stageDeps.setCursor = moveCursor;
+          stageDeps.cursorBusy = () => cursorControl?.busy() ?? false;
+        } else {
+          delete stageDeps.setCursor;
+          delete stageDeps.cursorBusy;
+        }
+        stage.setSettings(settings);
+        void rebuildMenu();
+      },
+      /** the fake cursor moved as somebody's hand would move it (the pets do not hear of it except through the cursor) */
+      move: (p: { x: number; y: number }) => {
+        if (fakeCursor) fakeCursor = { x: p.x, y: p.y };
+      },
+      cursor: () => fakeCursor,
+      busy: (on: boolean) => {
+        fakeBusy = on;
+      },
+      now: () => stage.seekAttention(),
+      seeking: () => stage.seekingAttention,
+    },
     view: () => (stage.view ? { ...stage.view, particles: [...stage.view.particles] } : null),
     /** every pet that is on the screens: the main character first, then its friends */
     views: () => stage.views.map(({ id, view }) => ({ id, ...view, particles: [...view.particles] })),
@@ -621,7 +670,13 @@ async function boot(): Promise<void> {
   // a friend whose skin folder has been taken away since last time cannot come along
   const known = new Set((await listSkins()).map((sk) => sk.id));
   settings = { ...settings, friends: settings.friends.filter((id) => known.has(id)) };
-  stage = new Stage({ cursor: () => screen.getCursorScreenPoint(), covered: makerCovers }, settings);
+  cursorControl = openWin32Cursor((message) => log('warn', message));
+  stageDeps = {
+    cursor: () => screen.getCursorScreenPoint(),
+    covered: makerCovers,
+    ...(cursorControl ? { setCursor: moveCursor, cursorBusy: () => cursorControl?.busy() ?? false } : {}),
+  };
+  stage = new Stage(stageDeps, settings);
   registerProtocol();
   registerIpc();
   registerMakerIpc({
