@@ -97,6 +97,11 @@ describe('headline', () => {
     expect(headline('0.3.1을 설치합니다. 그다음 업데이트합니다.')).toBe('0.3.1을 설치합니다.');
     expect(headline('Ctrl+Alt+Shift+C로 부릅니다.')).toBe('Ctrl+Alt+Shift+C로 부릅니다.');
   });
+
+  it('does not stop at a full stop with a bracket right after it, which is why a tag such as (실험 기능) goes before the stop', () => {
+    expect(headline('커서를 뺏어갑니다(실험 기능). 켜야 합니다.')).toBe('커서를 뺏어갑니다(실험 기능).');
+    expect(headline('커서를 뺏어갑니다.(실험 기능) 켜야 합니다.')).toBe('커서를 뺏어갑니다.(실험 기능) 켜야 합니다.');
+  });
 });
 
 describe('summarize', () => {
@@ -133,6 +138,11 @@ describe('CHANGELOG.md of this repository', () => {
   it('keeps the first sentences short enough for a notification', () => {
     const entry = entries.find((e) => e.version === version)!;
     for (const c of entry.changes) expect([...headline(c)].length, c).toBeLessThanOrEqual(36);
+  });
+
+  it('words the first sentence "이제 ~합니다." for what is new and "~현상을 수정했습니다." for what was fixed', () => {
+    const entry = entries.find((e) => e.version === version)!;
+    for (const c of entry.changes) expect(headline(c), c).toMatch(/^이제 .+니다(?:\(실험 기능\))?\.$|현상을 수정했습니다\.$/);
   });
 
   it('writes every change as sentences that end with "다."', () => {
