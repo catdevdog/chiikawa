@@ -1,5 +1,6 @@
 import type { Vec2 } from '../engine/types';
 import type { Battery } from '../shared/power';
+import type { SceneCommand, SceneStateReport } from '../shared/scene';
 import type { SkinPayload } from '../shared/skin-payload';
 import type { Area, InitInfo, PointerReport, Settings, SkinReport, ViewFrame } from '../shared/types';
 
@@ -10,9 +11,11 @@ export interface BuddyHostApi {
   onArea(cb: (a: Area) => void): void;
   onView(cb: (frames: ViewFrame[]) => void): void;
   onReloadSkin(cb: () => void): void;
+  onScene(cb: (command: SceneCommand) => void): void;
   pointer(report: PointerReport): void;
   reportSkin(skin: SkinReport): void;
   reportBattery(battery: Battery): void;
+  reportScene(report: SceneStateReport): void;
   log(level: 'info' | 'warn' | 'error', message: string): void;
 }
 

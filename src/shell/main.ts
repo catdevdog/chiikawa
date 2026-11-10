@@ -15,14 +15,15 @@ import {
   type MenuItemConstructorOptions,
 } from 'electron';
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { Mode, NoticeEvent, Roam, SayEvent, SpeechLevel } from '../engine/types';
 import { chooseDisplays, MONITOR_ALL, MONITOR_PRIMARY, parseFakeDisplays, type DisplayInfo } from '../shared/displays';
 import { BatteryWatch } from '../shared/power';
+import { parseRange } from '../shared/range';
 import { sanitizeFriends } from '../shared/sanitize';
 import { DEFAULT_SETTINGS, IPC, MAX_FRIENDS, type InitInfo, type Settings } from '../shared/types';
-import { parseBattery, parsePointer, parseSkinReport } from '../shared/validate';
+import { parseBattery, parsePointer, parseSceneState, parseSkinReport } from '../shared/validate';
 import { readDisplays, setFakeDisplays } from './displays';
 import { t } from './i18n';
 import { log } from './log';
@@ -30,6 +31,7 @@ import { makerCovers, openMaker, registerMakerIpc } from './maker';
 import { Overlay } from './overlay';
 import { boxesFrom, platformsFrom, sidesFrom, type RawWindow, type WindowBox, type WindowSource } from './perch';
 import { safeJoin } from './safe-path';
+import { ensureUserScenesDir, listScenes, readScene, resolveSceneFile, userScenesDir } from './scenes';
 import { loadSettings, saveSettings } from './settings';
 import { ensureUserSkinsDir, listSkins, MIME, resolveSkinFile, userSkinsDir } from './skins';
 import { Stage, type StageDeps } from './stage';
@@ -112,6 +114,42 @@ function overlayOf(e: IpcMainEvent | IpcMainInvokeEvent): Overlay | undefined {
 
 // --- app:// protocol: the UI from dist/renderer, skins from the user and bundled folders ----------
 
+/** The files that are played, not drawn: they are asked for in pieces, so that they can start before they are all there and jump about. */
+const MEDIA_FILES = new Set(['.webm', '.mp4', '.m4v', '.ogv', '.mp3', '.ogg', '.oga', '.opus', '.wav', '.m4a', '.aac', '.flac']);
+/** The last file of a scene that was read, kept for a while: a video is asked for piece after piece. */
+let lastMedia: { key: string; data: Buffer<ArrayBuffer> } | null = null;
+let forgetMedia: ReturnType<typeof setTimeout> | null = null;
+const MEDIA_KEEP_MS = 60_000;
+
+async function readFileKept(file: string, media: boolean): Promise<Buffer<ArrayBuffer>> {
+  if (!media) return readFile(file);
+  const info = await stat(file);
+  const key = `${file}|${info.size}|${info.mtimeMs}`;
+  if (lastMedia?.key !== key) lastMedia = { key, data: await readFile(file) };
+  if (forgetMedia) clearTimeout(forgetMedia);
+  forgetMedia = setTimeout(() => {
+    lastMedia = null;
+    forgetMedia = null;
+  }, MEDIA_KEEP_MS);
+  return lastMedia.data;
+}
+
+/** The answer for a file: all of it, or for a video or a sound the piece that was asked for. */
+function fileResponse(request: Request, file: string, data: Buffer<ArrayBuffer>): Response {
+  const ext = path.extname(file).toLowerCase();
+  const headers: Record<string, string> = { 'content-type': MIME[ext] ?? 'application/octet-stream', 'cache-control': 'no-store' };
+  if (MEDIA_FILES.has(ext)) {
+    headers['accept-ranges'] = 'bytes';
+    const range = parseRange(request.headers.get('range'), data.length);
+    if (range === 'unsatisfiable') return new Response(null, { status: 416, headers: { ...headers, 'content-range': `bytes */${data.length}` } });
+    if (range) {
+      headers['content-range'] = `bytes ${range.start}-${range.end}/${data.length}`;
+      return new Response(data.subarray(range.start, range.end + 1), { status: 206, headers });
+    }
+  }
+  return new Response(data, { headers });
+}
+
 function registerProtocol(): void {
   const rendererDir = path.join(app.getAppPath(), 'dist', 'renderer');
   protocol.handle('buddy', async (request) => {
@@ -120,15 +158,13 @@ function registerProtocol(): void {
       if (url.hostname !== 'app') return new Response('forbidden', { status: 403 });
       let rel = decodeURIComponent(url.pathname);
       if (rel === '/' || rel === '') rel = '/index.html';
-      const file = rel.startsWith('/skins/') ? await resolveSkinFile(rel.slice('/skins/'.length)) : safeJoin(rendererDir, rel);
+      const file = rel.startsWith('/skins/')
+        ? await resolveSkinFile(rel.slice('/skins/'.length))
+        : rel.startsWith('/scenes/')
+          ? await resolveSceneFile(rel.slice('/scenes/'.length))
+          : safeJoin(rendererDir, rel);
       if (!file) return new Response('not found', { status: 404 });
-      const data = await readFile(file);
-      return new Response(data, {
-        headers: {
-          'content-type': MIME[path.extname(file).toLowerCase()] ?? 'application/octet-stream',
-          'cache-control': 'no-store',
-        },
-      });
+      return fileResponse(request, file, await readFileKept(file, MEDIA_FILES.has(path.extname(file).toLowerCase())));
     } catch {
       return new Response('not found', { status: 404 });
     }
@@ -310,6 +346,11 @@ function registerIpc(): void {
   ipcMain.on(IPC.battery, (e, raw: unknown) => {
     if (overlayOf(e)) onBattery(raw);
   });
+  ipcMain.on(IPC.sceneState, (e, raw: unknown) => {
+    const o = overlayOf(e);
+    const report = parseSceneState(raw);
+    if (o && report) stage.sceneReport(o, report);
+  });
   ipcMain.on(IPC.log, (e, level: unknown, message: unknown) => {
     if (!overlayOf(e)) return;
     log(level === 'warn' || level === 'error' ? level : 'info', `[renderer] ${String(message).slice(0, 2000)}`);
@@ -331,6 +372,18 @@ function toggleHidden(): void {
 
 function performTrick(): void {
   stage.perform();
+}
+
+/** Plays the scene of a folder of the user's: read, checked, and put down where the pets are. False when it cannot be (and the log says why). */
+async function playScene(id: string): Promise<boolean> {
+  try {
+    const manifest = await readScene(id);
+    if (stage.startScene(id, manifest)) return true;
+    log('info', `scenes: "${id}" cannot be shown now (the pets are away, busy, or another scene is on)`);
+  } catch (err) {
+    log('warn', `scenes: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  return false;
 }
 
 function callPet(): void {
@@ -455,11 +508,34 @@ async function rebuildMenu(): Promise<void> {
           },
         ]
       : [];
+  // the scenes the user has put in the folder, and the sound they are played at (the nearest of the four choices)
+  const scenes = await listScenes();
+  const running = stage.sceneState !== null;
+  const volumes: [string, number][] = [
+    [s.volumeOff, 0],
+    [s.volumeLow, 0.3],
+    [s.volumeNormal, 0.6],
+    [s.volumeHigh, 1],
+  ];
+  const volume = volumes.reduce((best, [, v]) => (Math.abs(v - settings.volume) < Math.abs(best - settings.volume) ? v : best), 0);
+  const sceneMenu: MenuItemConstructorOptions = {
+    label: s.scenes,
+    submenu: [
+      ...(scenes.length > 0
+        ? scenes.map((sc): MenuItemConstructorOptions => ({ label: sc.name, enabled: !running && !stage.isHidden, click: () => void playScene(sc.id) }))
+        : [{ label: s.scenesNone, enabled: false } as MenuItemConstructorOptions]),
+      ...(running ? [{ type: 'separator' } as MenuItemConstructorOptions, { label: s.scenesStop, click: () => stage.stopScene('stopped from the tray') } as MenuItemConstructorOptions] : []),
+      { type: 'separator' },
+      { label: s.volume, submenu: volumes.map(([label, v]) => radio(label, v, volume, (value) => update({ volume: value }))) },
+      { label: s.scenesOpen, click: () => void shell.openPath(userScenesDir()) },
+    ],
+  };
   const updateItem = updates?.menuItem() ?? null;
   lastMenu = Menu.buildFromTemplate([
     { label: `${s.call} (${shortcutLabel(CALL_KEY)})`, click: () => callPet() },
     { label: `${stage.isHidden ? s.show : s.hide} (${shortcutLabel(HIDE_KEY)})`, click: () => toggleHidden() },
     ...(stage.hasActions ? [{ label: s.perform, enabled: !stage.isHidden, click: () => performTrick() } as MenuItemConstructorOptions] : []),
+    sceneMenu,
     { type: 'separator' },
     {
       label: s.mode,
@@ -591,6 +667,15 @@ function exposeTestHooks(): void {
     },
     /** the notice of what an update changed, with its text captured instead of shown */
     whatsNew: (wasReturning: boolean): Announced | null => announceChanges(wasReturning, () => {}),
+    /** scenes: the folders that can be played, playing one (false: it could not be shown), ending it, and where it stands */
+    scene: {
+      list: () => listScenes(),
+      play: (id: string) => playScene(id),
+      stop: () => stage.stopScene('stopped'),
+      state: () => stage.sceneState,
+      offstage: () => stage.offstage,
+      dir: () => userScenesDir(),
+    },
     /** the tray menu as it is now: label, type, checked, enabled, submenu */
     menu: () => describeMenu(lastMenu),
     /** clicks an item of the tray menu, found by the labels on the way to it; false when there is none (or it is switched off) */
@@ -694,6 +779,7 @@ async function boot(): Promise<void> {
   // an app that ran here before has made its skins folder; a first start has not (read before it is made)
   const returning = existsSync(userSkinsDir());
   ensureUserSkinsDir();
+  ensureUserScenesDir();
   settings = loadSettings();
   // a friend whose skin folder has been taken away since last time cannot come along
   const known = new Set((await listSkins()).map((sk) => sk.id));
@@ -703,6 +789,8 @@ async function boot(): Promise<void> {
     cursor: () => screen.getCursorScreenPoint(),
     covered: makerCovers,
     log: (message) => log('info', aboutWindows(message)),
+    // what the tray offers while a scene is on is not what it offers otherwise
+    sceneChanged: () => void rebuildMenu(),
     ...(cursorControl ? { setCursor: moveCursor, cursorBusy: () => cursorControl?.busy() ?? false } : {}),
   };
   stage = new Stage(stageDeps, settings);

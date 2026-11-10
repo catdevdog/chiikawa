@@ -3,6 +3,7 @@ import type { HangLayout, PeekLayout } from '../engine/peek';
 import { parseLines } from '../engine/speech';
 import { isSkinId } from './ids';
 import type { Battery } from './power';
+import type { SceneStateReport } from './scene';
 import type { PointerReport, SkinReport } from './types';
 
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -71,6 +72,14 @@ export function parsePointer(raw: unknown): PointerReport | null {
   const { kind, x, y } = raw as Record<string, unknown>;
   if ((kind !== 'down' && kind !== 'up') || !finite(x) || !finite(y)) return null;
   return { kind, x, y };
+}
+
+/** What an overlay says about the scene it was given: which showing it is about, and that it plays, is over, or failed. */
+export function parseSceneState(raw: unknown): SceneStateReport | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const { run, state, message } = raw as Record<string, unknown>;
+  if (!finite(run) || !Number.isInteger(run) || (state !== 'playing' && state !== 'ended' && state !== 'failed')) return null;
+  return { run, state, ...(typeof message === 'string' ? { message: message.slice(0, 500) } : {}) };
 }
 
 /** The battery as an overlay reports it (`navigator.getBattery()`): a charge from 0 to 1 and whether it is charging. */

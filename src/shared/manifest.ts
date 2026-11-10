@@ -45,7 +45,8 @@ export interface SkinManifest {
 const num = (v: unknown, fallback: number, min: number, max: number): number =>
   typeof v === 'number' && Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : fallback;
 
-function parsePose(v: unknown): PoseSource | null {
+/** One pose entry of a manifest (a file name, or a sprite sheet), or null when it is not one. Scenes name their pictures the same way. */
+export function parsePose(v: unknown): PoseSource | null {
   if (typeof v === 'string') return v || null;
   if (!v || typeof v !== 'object') return null;
   const o = v as Record<string, unknown>;

@@ -27,6 +27,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     friends: sanitizeFriends(r.friends, skin),
     windows: typeof r.windows === 'boolean' ? r.windows : d.windows,
     attention: r.attention === true,
+    volume: typeof r.volume === 'number' && Number.isFinite(r.volume) ? Math.min(1, Math.max(0, r.volume)) : d.volume,
   };
 }
 

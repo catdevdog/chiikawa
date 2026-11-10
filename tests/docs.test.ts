@@ -6,7 +6,7 @@ import { headline, parseChangelog } from '../src/shared/changelog';
 const ROOT = path.resolve(__dirname, '..');
 
 /** The documents people read: they, and the notices built from them, are written in plain sentences. */
-const DOCS = ['README.md', 'CHANGELOG.md', 'docs/PLAN.md', 'docs/GUIDE.md', 'docs/SKINS.md', 'docs/DEVELOPMENT.md', 'CLAUDE.md'];
+const DOCS = ['README.md', 'CHANGELOG.md', 'docs/PLAN.md', 'docs/GUIDE.md', 'docs/SKINS.md', 'docs/SCENES.md', 'docs/DEVELOPMENT.md', 'CLAUDE.md'];
 
 /** Dashes, arrows, ellipsis characters and curly quotes: the marks that make a text look machine-written. */
 const FANCY = /[‐-―←-⇿…‘’“”·]/u;

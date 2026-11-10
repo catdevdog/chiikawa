@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mulberry32, type Platform, type Vec2 } from '../src/engine';
+import { parseSceneManifest, type SceneCommand, type SceneManifest } from '../src/shared/scene';
 import { DEFAULT_SETTINGS, type Area, type Settings, type SkinReport, type ViewFrame } from '../src/shared/types';
 import { sidesFrom, type WindowBox } from '../src/shell/perch';
 import { Stage, type StageWindow } from '../src/shell/stage';
@@ -18,6 +19,8 @@ class FakeWindow implements StageWindow {
   frames: (ViewFrame | null)[] = [];
   /** every message, whole */
   lists: ViewFrame[][] = [];
+  /** what a scene was told to do here */
+  commands: SceneCommand[] = [];
   constructor(readonly area: Area) {}
   setIgnoring(ignore: boolean): void {
     this.ignoring = ignore;
@@ -27,6 +30,9 @@ class FakeWindow implements StageWindow {
     const copy = structuredClone(frames);
     this.lists.push(copy);
     this.frames.push(copy[0] ?? null);
+  }
+  scene(command: SceneCommand): void {
+    this.commands.push(structuredClone(command));
   }
   get last(): ViewFrame | null {
     return this.frames.at(-1) ?? null;
@@ -1491,5 +1497,301 @@ describe('a pet that looks for attention (an experiment that moves the real curs
     expect(env.puts.length).toBeGreaterThan(0);
     // one cursor, held by one pet at a time: never two steps in a tick
     expect(env.puts.length).toBeLessThan(30_000 / 16);
+  });
+});
+
+describe('a scene', () => {
+  const skin = (id: string): SkinReport => ({ ...GEOMETRY, id });
+  /** a stage whose main character is `main`, with its friends (all skins up), the pets calm */
+  function show(main: string, friends: string[], extra: Partial<Settings> = {}, areas: Area[] = [LEFT, RIGHT]) {
+    const settings: Settings = { ...SETTINGS, skin: main, friends, ...extra };
+    const t = setup(areas, settings);
+    t.stage.setSkin(skin(main));
+    for (const id of friends) t.stage.setSkin(skin(id));
+    t.run(300);
+    return { ...t, settings };
+  }
+  type Show = ReturnType<typeof show>;
+  const SCENE = (cast: string[], over: Record<string, unknown> = {}): SceneManifest => parseSceneManifest({ video: 'a.webm', size: { w: 400, h: 200 }, cast, ...over }, 'show');
+  const commandsOf = (t: Show, kind: SceneCommand['kind']): SceneCommand[] => t.wins.flatMap((w) => w.commands).filter((c) => c.kind === kind);
+  /** who the first window was last told about */
+  const listed = (t: Show): string[] => t.wins[0]!.lastList.map((f) => f.id).sort();
+  const viewOf = (t: Show, id: string) => t.stage.views.find((v) => v.id === id)!.view;
+  /** the middle of the picture, which a click stops the show at */
+  const middle = (t: Show): Vec2 => {
+    const r = t.stage.sceneState!.rect;
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  };
+  /** starts a scene and has the window say that it plays */
+  const play = (t: Show, manifest: SceneManifest): void => {
+    expect(t.stage.startScene('show', manifest)).toBe(true);
+    t.stage.sceneReport(t.wins[0]!, { run: commandsOf(t, 'start').length, state: 'playing' });
+  };
+
+  it('puts the picture down at the feet of the character it is about, in the window that character is in, and tells only that window', () => {
+    const t = show('default', ['hachiware']);
+    const feet = viewOf(t, 'hachiware');
+    expect(t.stage.startScene('show', SCENE(['hachiware']))).toBe(true);
+    const start = t.wins[0]!.commands[0]!;
+    expect(start.kind).toBe('start');
+    if (start.kind !== 'start') return;
+    expect(start.run).toBe(1);
+    expect(start.id).toBe('show');
+    expect(start.manifest.video).toBe('a.webm');
+    expect(start.rect.width).toBe(400);
+    expect(Math.abs(start.rect.x + start.rect.width / 2 - feet.x)).toBeLessThan(40);
+    expect(start.rect.y + start.rect.height).toBeLessThanOrEqual(LEFT.height);
+    expect(t.wins[1]!.commands).toEqual([]);
+    expect(t.stage.sceneState).toMatchObject({ id: 'show', phase: 'loading', cast: ['hachiware'] });
+  });
+
+  it('is about the main character when nobody of its cast is on the screens, and then nobody steps out', () => {
+    const t = show('default', ['usagi']);
+    const feet = viewOf(t, 'default');
+    play(t, SCENE(['rakko']));
+    const start = t.wins[0]!.commands[0]!;
+    if (start.kind !== 'start') throw new Error('no start');
+    expect(Math.abs(start.rect.x + start.rect.width / 2 - feet.x)).toBeLessThan(40);
+    expect(t.stage.offstage).toEqual([]);
+    t.run(100);
+    expect(listed(t)).toEqual(['default', 'usagi']);
+  });
+
+  it('has the cast step out of the screens only when the window says that the scene plays', () => {
+    const t = show('default', ['hachiware', 'usagi']);
+    expect(t.stage.startScene('show', SCENE(['hachiware']))).toBe(true);
+    t.run(100);
+    expect(t.stage.offstage).toEqual([]);
+    expect(listed(t)).toEqual(['default', 'hachiware', 'usagi']);
+    t.stage.sceneReport(t.wins[0]!, { run: 1, state: 'playing' });
+    expect(t.stage.sceneState!.phase).toBe('playing');
+    expect(t.stage.offstage).toEqual(['hachiware']);
+    t.run(100);
+    expect(listed(t)).toEqual(['default', 'usagi']);
+  });
+
+  it('brings the cast back when the window says that it is over, and does not tell the window what it said itself', () => {
+    const t = show('default', ['hachiware']);
+    play(t, SCENE(['hachiware']));
+    t.run(100);
+    t.stage.sceneReport(t.wins[0]!, { run: 1, state: 'ended' });
+    expect(t.stage.sceneState).toBeNull();
+    expect(t.stage.offstage).toEqual([]);
+    t.run(100);
+    expect(listed(t)).toEqual(['default', 'hachiware']);
+    expect(commandsOf(t, 'stop')).toEqual([]);
+  });
+
+  it('gives up on a scene that could not be played: the cast stays, or is back', () => {
+    const t = show('default', ['hachiware']);
+    expect(t.stage.startScene('show', SCENE(['hachiware']))).toBe(true);
+    t.stage.sceneReport(t.wins[0]!, { run: 1, state: 'failed', message: 'no such file' });
+    expect(t.stage.sceneState).toBeNull();
+    expect(t.stage.offstage).toEqual([]);
+    expect(commandsOf(t, 'stop')).toEqual([]);
+    t.run(100);
+    expect(listed(t)).toEqual(['default', 'hachiware']);
+  });
+
+  it('keeps the pets that step out where they were, and they cannot be touched there', () => {
+    const t = show('default', ['hachiware']);
+    const before = viewOf(t, 'hachiware');
+    const at = { x: before.x, y: before.y };
+    const body = { x: before.hitbox.x + before.hitbox.w / 2, y: before.hitbox.y + before.hitbox.h / 2 };
+    // the part of the picture that a click stops the show at is a corner, so that a press on the spot of the pet does not stop it
+    play(t, SCENE(['hachiware'], { hitbox: { x: 0, y: 0, w: 0.1, h: 0.1 } }));
+    t.press(t.wins[0]!, body);
+    t.release(t.wins[0]!, body);
+    t.run(3000);
+    // the pet that stepped out was not touched, and did not move
+    expect(t.stage.sceneState).not.toBeNull();
+    const during = viewOf(t, 'hachiware');
+    expect({ x: during.x, y: during.y }).toEqual(at);
+    expect(during.state).toBe(before.state);
+    t.stage.sceneReport(t.wins[0]!, { run: 1, state: 'ended' });
+    t.run(16);
+    expect(Math.abs(viewOf(t, 'hachiware').x - at.x)).toBeLessThan(5);
+  });
+
+  it('works when the main character acts in it', () => {
+    const t = show('default', ['usagi']);
+    play(t, SCENE(['default']));
+    expect(t.stage.offstage).toEqual(['default']);
+    expect(t.stage.seekAttention()).toBe(false);
+    t.run(2000);
+    expect(listed(t)).toEqual(['usagi']);
+    t.stage.sceneReport(t.wins[0]!, { run: 1, state: 'ended' });
+    t.run(100);
+    expect(listed(t)).toEqual(['default', 'usagi']);
+  });
+
+  it('ends when its picture is clicked, and tells the window; a click elsewhere does nothing', () => {
+    const t = show('default', ['hachiware']);
+    play(t, SCENE(['hachiware']));
+    t.run(100);
+    t.press(t.wins[0]!, { x: 20, y: 20 });
+    t.release(t.wins[0]!, { x: 20, y: 20 });
+    expect(t.stage.sceneState).not.toBeNull();
+    const p = middle(t);
+    t.press(t.wins[0]!, p);
+    expect(t.stage.sceneState).toBeNull();
+    expect(commandsOf(t, 'stop')).toEqual([{ kind: 'stop', run: 1 }]);
+    expect(t.stage.offstage).toEqual([]);
+    t.release(t.wins[0]!, p);
+  });
+
+  it('lets the window that shows the picture take the mouse while the pointer is on it, and no other window', () => {
+    const t = show('default', ['hachiware']);
+    play(t, SCENE(['hachiware']));
+    t.env.cursor = middle(t);
+    t.run(32);
+    expect(t.wins[0]!.ignoring).toBe(false);
+    expect(t.wins[1]!.ignoring).toBe(true);
+    t.env.cursor = { x: 20, y: 20 };
+    t.run(32);
+    expect(t.wins.every((w) => w.ignoring)).toBe(true);
+  });
+
+  it('lets the mouse through while the scene is still being got ready', () => {
+    const t = show('default', ['hachiware']);
+    expect(t.stage.startScene('show', SCENE(['hachiware']))).toBe(true);
+    const r = t.stage.sceneState!.rect;
+    t.env.cursor = { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    t.run(32);
+    // the pet that is there is what takes the mouse, not the picture that is not on yet
+    expect(t.stage.sceneState!.phase).toBe('loading');
+  });
+
+  it('starts one scene at a time, and only where it can be shown', () => {
+    const t = show('default', []);
+    expect(t.stage.startScene('show', SCENE([]))).toBe(true);
+    expect(t.stage.startScene('other', SCENE([]))).toBe(false);
+    t.stage.stopScene();
+    expect(t.stage.sceneState).toBeNull();
+    t.stage.setHidden(true);
+    expect(t.stage.startScene('show', SCENE([]))).toBe(false);
+
+    // a window that cannot show a scene is never given one
+    const plain: StageWindow = { area: LEFT, setIgnoring: () => {}, send: () => {} };
+    const stage = new Stage({ cursor: () => ({ x: -500, y: -500 }), covered: () => false, rng: mulberry32(3) }, SETTINGS);
+    stage.setWindows([plain]);
+    stage.setSkin(GEOMETRY);
+    for (let n = 16; n < 400; n += 16) stage.tick(n);
+    expect(stage.startScene('show', SCENE([]))).toBe(false);
+  });
+
+  it('does not start under a pet that is in somebody\'s hand', () => {
+    const t = show('default', []);
+    const grab = t.body();
+    t.press(t.wins[0]!, grab);
+    t.drag(grab, { x: grab.x + 200, y: grab.y - 200 }, 20);
+    expect(t.stage.view!.state).toBe('held');
+    expect(t.stage.startScene('show', SCENE([]))).toBe(false);
+    t.release(t.wins[0]!, t.env.cursor);
+  });
+
+  it('gives up on a scene that is not ready in time, and on one that does not end', () => {
+    const slow = show('default', ['hachiware']);
+    expect(slow.stage.startScene('show', SCENE(['hachiware']))).toBe(true);
+    slow.run(7000);
+    expect(slow.stage.sceneState).not.toBeNull();
+    slow.run(1500);
+    expect(slow.stage.sceneState).toBeNull();
+    expect(commandsOf(slow, 'stop')).toEqual([{ kind: 'stop', run: 1 }]);
+    expect(slow.stage.offstage).toEqual([]);
+
+    const long = show('default', ['hachiware']);
+    play(long, SCENE(['hachiware'], { maxMs: 2000 }));
+    long.run(1800);
+    expect(long.stage.sceneState).not.toBeNull();
+    long.run(400);
+    expect(long.stage.sceneState).toBeNull();
+    expect(long.stage.offstage).toEqual([]);
+    expect(commandsOf(long, 'stop')).toHaveLength(1);
+  });
+
+  it('listens only to the window that was given the scene, about the showing that is going on', () => {
+    const t = show('default', ['hachiware']);
+    expect(t.stage.startScene('show', SCENE(['hachiware']))).toBe(true);
+    t.stage.sceneReport(t.wins[0]!, { run: 99, state: 'playing' });
+    t.stage.sceneReport(t.wins[1]!, { run: 1, state: 'playing' });
+    expect(t.stage.sceneState!.phase).toBe('loading');
+    t.stage.sceneReport(t.wins[0]!, { run: 99, state: 'ended' });
+    expect(t.stage.sceneState).not.toBeNull();
+    t.stage.stopScene();
+    // a report about a showing that is over changes nothing
+    t.stage.sceneReport(t.wins[0]!, { run: 1, state: 'playing' });
+    expect(t.stage.offstage).toEqual([]);
+    // and the next showing is a new one
+    expect(t.stage.startScene('show', SCENE(['hachiware']))).toBe(true);
+    expect(commandsOf(t, 'start').map((c) => (c.kind === 'start' ? c.run : 0))).toEqual([1, 2]);
+  });
+
+  it('ends when the pets are put away, called, sent to hide, or when its window changes, and the cast is back', () => {
+    const ends: [string, (t: Show) => void][] = [
+      ['put away', (t) => t.stage.setHidden(true)],
+      ['called', (t) => t.stage.call()],
+      ['sent to hide', (t) => void t.stage.hideAtWall()],
+      ['its window is gone', (t) => t.stage.setWindows([t.wins[1]!])],
+      ['its window changed', (t) => {
+        (t.wins[0]!.area as { width: number }).width = 1000;
+        t.stage.setWindows(t.wins);
+      }],
+    ];
+    for (const [name, end] of ends) {
+      const t = show('default', ['hachiware']);
+      play(t, SCENE(['hachiware']));
+      t.run(100);
+      end(t);
+      expect(t.stage.sceneState, name).toBeNull();
+      expect(t.stage.offstage, name).toEqual([]);
+      expect(commandsOf(t, 'stop'), name).toHaveLength(1);
+    }
+  });
+
+  it('is ended too by three clicks on a pet that is still there', () => {
+    const t = show('default', ['hachiware', 'usagi']);
+    play(t, SCENE(['hachiware']));
+    const v = viewOf(t, 'usagi');
+    const at = { x: v.hitbox.x + v.hitbox.w / 2, y: v.hitbox.y + v.hitbox.h / 2 };
+    for (let i = 0; i < 3; i++) {
+      t.press(t.wins[0]!, at);
+      t.release(t.wins[0]!, at);
+      t.run(100);
+    }
+    expect(t.stage.sceneState).toBeNull();
+    expect(t.stage.offstage).toEqual([]);
+    expect(t.stage.hiding.length).toBeGreaterThan(0);
+  });
+
+  it('makes the sound as loud as the volume that is chosen, and follows it while the scene plays', () => {
+    const t = show('default', ['hachiware'], { volume: 0.8 });
+    expect(t.stage.startScene('show', SCENE(['hachiware'], { volume: 0.5 }))).toBe(true);
+    const start = t.wins[0]!.commands[0]!;
+    expect(start.kind === 'start' && start.volume).toBeCloseTo(0.4);
+    t.stage.sceneReport(t.wins[0]!, { run: 1, state: 'playing' });
+    t.stage.setSettings({ ...t.settings, volume: 0.2 });
+    const last = t.wins[0]!.commands.at(-1)!;
+    expect(last.kind).toBe('volume');
+    expect(last.kind === 'volume' && last.volume).toBeCloseTo(0.1);
+    // nothing is sent for a setting that did not change the volume
+    const n = t.wins[0]!.commands.length;
+    t.stage.setSettings({ ...t.settings, volume: 0.2, scale: 1.5 });
+    expect(t.wins[0]!.commands).toHaveLength(n);
+  });
+
+  it('tells the tray when a scene begins and ends', () => {
+    let changes = 0;
+    const win = new FakeWindow(LEFT);
+    const stage = new Stage({ cursor: () => ({ x: -500, y: -500 }), covered: () => false, rng: mulberry32(3), sceneChanged: () => changes++ }, SETTINGS);
+    stage.setWindows([win]);
+    stage.setSkin(GEOMETRY);
+    for (let n = 16; n < 400; n += 16) stage.tick(n);
+    expect(stage.startScene('show', SCENE([]))).toBe(true);
+    expect(changes).toBe(1);
+    stage.sceneReport(win, { run: 1, state: 'playing' });
+    expect(changes).toBe(2);
+    stage.sceneReport(win, { run: 1, state: 'ended' });
+    expect(changes).toBe(3);
   });
 });

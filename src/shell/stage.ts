@@ -4,6 +4,7 @@ import type { NoticeEvent, PetView, Platform, Rect, SayEvent, Side, Vec2 } from 
 import { windowOf } from '../engine/perch';
 import { clamp, mulberry32 } from '../engine/vec';
 import { bodyOf, fitTo } from '../shared/body';
+import { onScene, placeScene, type SceneManifest, type SceneCommand, type SceneStateReport } from '../shared/scene';
 import { MAX_FRIENDS, type Area, type PointerReport, type Settings, type SkinReport, type ViewFrame } from '../shared/types';
 
 /** One overlay window, as the stage sees it. */
@@ -14,6 +15,8 @@ export interface StageWindow {
   setIgnoring(ignore: boolean): void;
   /** The pets that are in this window, as seen from the shared space (none: nothing to draw here). */
   send(frames: ViewFrame[]): void;
+  /** Tells the window what to do about a scene: play it, stop it, change its volume. Only the window that shows a scene is told; one that cannot is never given a scene. */
+  scene?(command: SceneCommand): void;
 }
 
 export interface StageDeps {
@@ -27,11 +30,17 @@ export interface StageDeps {
   cursorBusy?(): boolean;
   /** Where to write down (in the log) what a pet does about the windows of other programs, so that a report of one that did not do as it should can be followed. */
   log?(message: string): void;
+  /** A scene began or ended (what the tray offers depends on it). */
+  sceneChanged?(): void;
   rng?: () => number;
 }
 
 /** Calm poses (idle, sit, sleep) only need a slow refresh. */
 const CALM_MS = 66;
+/** A window that has not got a scene ready to play by then (ms) is given up on. */
+const SCENE_LOAD_MS = 8000;
+/** The states a pet may be in when a scene starts at its feet: on them, and not in anybody's hand or in a hiding place. */
+const STAGEABLE: ReadonlySet<string> = new Set(['idle', 'walk', 'run', 'sit', 'sleep', 'happy', 'surprised', 'act']);
 /** A jump this long in one step is a teleport (the screens changed), not movement to draw towards. */
 const TELEPORT = 240;
 /** Friends start this far apart, to either side of the middle. */
@@ -59,7 +68,28 @@ interface Member {
   sentAt: number;
   /** the window this pet hides at the side of (null: none), as it was at the last step */
   hidesAt: string | null;
+  /** in a scene that plays: not on the screens, not moving, and nobody can touch it */
+  offstage: boolean;
 }
+
+/** A scene that is going on: which showing it is, what it is, where it is shown, and which pets act in it. */
+interface SceneRun {
+  run: number;
+  id: string;
+  manifest: SceneManifest;
+  win: StageWindow;
+  /** the window's area when it began: a window that has moved or changed size ends it */
+  area: Area;
+  /** where the picture is, in the shared space */
+  rect: Area;
+  /** `loading`: the window is getting the picture and the sound ready, and no pet has stepped out yet; `playing`: it is on */
+  phase: 'loading' | 'playing';
+  /** the stage clock (ms) when it began, and when it began to play */
+  since: number;
+  cast: Member[];
+}
+
+const sameArea = (a: Area, b: Area): boolean => a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
 
 /**
  * The pets' whole life, in one place for all monitors: they are simulated here, in the shared screen space, and
@@ -84,6 +114,10 @@ export class Stage {
   private last = Number.NaN;
   private lastCursor: Vec2 = { x: Number.NaN, y: Number.NaN };
   private readonly flock: Flock;
+  /** the scene that is going on, if any (one at a time); how many have been started; and the clock of the last step */
+  private scene: SceneRun | null = null;
+  private sceneCount = 0;
+  private now = 0;
 
   constructor(
     private readonly deps: StageDeps,
@@ -123,7 +157,7 @@ export class Stage {
 
   /** Sends the main character out to get attention now, as if it had been left alone for long; false when it cannot go. For tests and diagnostics. */
   seekAttention(): boolean {
-    return !this.hidden && (this.members[0]?.pet.seekAttention() ?? false);
+    return !this.hidden && !this.members[0]?.offstage && (this.members[0]?.pet.seekAttention() ?? false);
   }
 
   /** Is the main character out to get attention? For tests and diagnostics. */
@@ -135,9 +169,70 @@ export class Stage {
     return this.hidden;
   }
 
+  /** The scene that is going on (null: none): what it is, how far it has got, and where its picture is. For the tray, tests and diagnostics. */
+  get sceneState(): { id: string; phase: 'loading' | 'playing'; rect: Area; cast: string[] } | null {
+    const s = this.scene;
+    return s ? { id: s.id, phase: s.phase, rect: { ...s.rect }, cast: s.cast.map((m) => m.id) } : null;
+  }
+
+  /** The characters that are out of the screens for a scene, by skin id. For tests and diagnostics. */
+  get offstage(): string[] {
+    return this.members.filter((m) => m.offstage).map((m) => m.id);
+  }
+
+  /**
+   * Plays a scene where the pets are: its picture goes down with its feet at the feet of the pet it is about (the first of its
+   * cast that is on the screens and calm, else the main character), in the window that pet is in, and the characters of its
+   * cast step out of the screens for as long as it plays. False when it cannot be: the pets are away, a scene is going on
+   * already, the pet is busy (in a hand, in a hiding place, out for attention), or the window cannot show scenes.
+   */
+  startScene(id: string, manifest: SceneManifest): boolean {
+    const main = this.members[0];
+    if (this.hidden || this.scene || !main || this.windows.size === 0) return false;
+    const cast = this.members.filter((m) => manifest.cast.includes(m.id));
+    const anchor = [...cast, main].find((m) => this.calm(m));
+    if (!anchor) return false;
+    const feet = { x: anchor.pet.view.x, y: anchor.pet.view.y };
+    const win = this.windowAt(feet);
+    if (!win?.scene) return false;
+    const rect = placeScene(feet, manifest.size, manifest.anchor, this.settings.scale, win.area);
+    const run = ++this.sceneCount;
+    this.scene = { run, id, manifest, win, area: { ...win.area }, rect, phase: 'loading', since: this.now, cast };
+    this.deps.log?.(`scene ${id} is going to be shown at ${Math.round(rect.x)},${Math.round(rect.y)} ${Math.round(rect.width)}x${Math.round(rect.height)}, cast: ${cast.map((m) => m.id).join(', ') || 'none'}`);
+    win.scene({ kind: 'start', run, id, manifest, rect: { ...rect }, volume: this.settings.volume * manifest.volume });
+    this.deps.sceneChanged?.();
+    return true;
+  }
+
+  /** Ends the scene that is going on, if there is one: the pets of its cast come back. */
+  stopScene(why = 'stopped'): void {
+    if (!this.scene) return;
+    this.deps.log?.(`scene ${this.scene.id} ${why}`);
+    this.endScene(true);
+  }
+
+  /** What a window says about the scene it was given: it plays now (the cast steps out), it is over, or it could not be played. */
+  sceneReport(win: StageWindow, report: SceneStateReport): void {
+    const s = this.scene;
+    if (!s || s.win !== win || report.run !== s.run) return;
+    if (report.state === 'playing') {
+      if (s.phase !== 'loading') return;
+      s.phase = 'playing';
+      s.since = this.now;
+      for (const m of s.cast) this.stepOut(m);
+      this.deps.log?.(`scene ${s.id} plays`);
+      this.deps.sceneChanged?.();
+    } else {
+      this.deps.log?.(report.state === 'ended' ? `scene ${s.id} is over` : `scene ${s.id} could not be played: ${report.message ?? 'no reason given'}`);
+      // the window has finished with it already
+      this.endScene(false);
+    }
+  }
+
   /** Puts the pets away, or brings them back where they were (with a greeting). They do not live on while hidden. */
   setHidden(hidden: boolean): void {
     if (hidden === this.hidden) return;
+    if (hidden) this.stopScene('stopped, the pets are put away');
     this.hidden = hidden;
     if (hidden) this.putAway();
     else {
@@ -153,8 +248,9 @@ export class Stage {
    */
   hideAtWall(origin?: string): boolean {
     if (this.hidden) return false;
-    const from = this.members.find((m) => m.id === origin) ?? this.members[0];
+    const from = this.members.find((m) => m.id === origin && !m.offstage) ?? this.members.find((m) => !m.offstage);
     if (!from) return false;
+    this.stopScene('stopped, the pets go to hide');
     return this.peekAll(from);
   }
 
@@ -165,6 +261,7 @@ export class Stage {
 
   /** The user calls the pets: out of hiding if need be, and over to the cursor. */
   call(): void {
+    this.stopScene('stopped, the pets are called');
     if (this.hidden) {
       this.hidden = false;
       this.resume();
@@ -183,16 +280,16 @@ export class Stage {
    */
   perform(name?: string): boolean {
     if (this.hidden) return false;
-    if (name !== undefined) return this.members[0]?.pet.perform(name) ?? false;
+    if (name !== undefined) return this.members[0] && !this.members[0].offstage ? this.members[0].pet.perform(name) : false;
     let did = false;
-    for (const m of this.members) did = m.pet.perform() || did;
+    for (const m of this.members) if (!m.offstage) did = m.pet.perform() || did;
     return did;
   }
 
-  /** Something happened on the computer. Pets that are put away have nothing to show for it. */
+  /** Something happened on the computer. Pets that are put away, or act in a scene, have nothing to show for it. */
   notice(event: NoticeEvent): void {
     if (this.hidden) return;
-    for (const m of this.members) m.pet.notice(event);
+    for (const m of this.members) if (!m.offstage) m.pet.notice(event);
   }
 
   /** The windows of other programs the pets may stand on, as they are now (none: the pets stay on the floor, and any that stand on one fall). */
@@ -247,6 +344,8 @@ export class Stage {
       this.pressed.member.pet.cancelPointer();
       this.pressed = null;
     }
+    // a scene whose window is gone, or has moved or changed size, is not where it was put
+    if (this.scene && (!next.has(this.scene.win) || !sameArea(this.scene.win.area, this.scene.area))) this.stopScene('stopped, its window changed');
     // with no window at all (every monitor is gone for a moment) the pets keep the screens they had
     if (windows.length > 0) for (const m of this.members) m.pet.setRegion(windows.map((w) => rectOf(w.area)));
     this.sync();
@@ -262,10 +361,13 @@ export class Stage {
   }
 
   setSettings(s: Settings): void {
+    const volume = this.settings.volume;
     this.settings = s;
     this.sync();
     this.members.forEach((m, i) => this.apply(m, i === 0));
     if (this.pressed && !this.pressed.member.pet.pressed) this.pressed = null;
+    // the sound of a scene that plays follows the volume
+    if (this.scene && s.volume !== volume) this.scene.win.scene?.({ kind: 'volume', run: this.scene.run, volume: s.volume * this.scene.manifest.volume });
   }
 
   /**
@@ -280,7 +382,11 @@ export class Stage {
       if (this.pressed) return;
       const at = { x: win.area.x + e.x, y: win.area.y + e.y };
       const member = this.frontAt(at);
-      if (!member) return;
+      if (!member) {
+        // a click on the picture of a scene that plays ends it
+        if (this.scene?.phase === 'playing' && win === this.scene.win && onScene(this.scene.rect, this.scene.manifest.hitbox, at)) this.stopScene('stopped by a click');
+        return;
+      }
       member.pet.pointerDown(at);
       this.pressed = member.pet.pressed ? { win, member } : null;
     } else if (this.pressed?.win === win) {
@@ -294,26 +400,31 @@ export class Stage {
 
   /** Advances the pets to `now` (ms) and sends what changed to the windows. */
   tick(now: number): void {
+    this.now = now;
     if (this.members.length === 0 || this.hidden) return;
     const dt = Number.isNaN(this.last) ? 16 : now - this.last;
     this.last = now;
+    this.watchScene(now);
     const c = this.deps.cursor();
     const covered = this.deps.covered(c);
     // is the mouse in use for something else? (asked only while the experiment is on: it costs a few calls of the system)
     const busy = this.settings.attention && (this.deps.cursorBusy?.() ?? false);
 
+    // the pets that act in a scene that plays are not here: they do not move, feel nothing, and are not drawn
+    const live = this.members.filter((m) => !m.offstage);
+    const main = this.members[0]?.offstage ? undefined : this.members[0];
     // hover, rubbing and drags follow the polled pointer: the windows only report the buttons. Only the pet in
     // front (or the one being held) feels the pointer; the others are left alone by it.
     const moved = c.x !== this.lastCursor.x || c.y !== this.lastCursor.y;
     this.lastCursor = c;
     const front = this.pressed?.member ?? (covered ? null : this.frontAt(c));
-    for (const m of this.members) {
+    for (const m of live) {
       m.pet.setCursor(c);
       if (m.pet.pressed || (m === front && moved && !covered)) m.pet.pointerMove(c);
       if (covered || m !== front || !m.pet.isOver(c)) m.pet.pointerLeave();
     }
     // a pet that hides was picked up: that finds the others too
-    for (const m of this.members) {
+    for (const m of live) {
       if (m.pet.takeFound()) {
         this.seekAll(m);
         break;
@@ -321,24 +432,78 @@ export class Stage {
     }
     this.flock.step(
       dt,
-      this.members.map((m) => ({ id: m.id, pet: m.pet })),
+      live.map((m) => ({ id: m.id, pet: m.pet })),
     );
-    this.members[0]?.pet.setCursorBusy(busy);
-    for (const m of this.members) {
+    main?.pet.setCursorBusy(busy);
+    for (const m of live) {
       m.pet.update(dt);
       this.noteWindow(m);
     }
     // a pet that pulls at the mouse takes the cursor where it wants it
-    const goal = this.members[0]?.pet.takeCursorGoal();
+    const goal = main?.pet.takeCursorGoal();
     if (goal && this.deps.setCursor) this.deps.setCursor(goal);
     if (this.pressed && !this.pressed.member.pet.pressed) this.pressed = null;
 
-    for (const m of this.members) this.measure(m, dt);
+    for (const m of live) this.measure(m, dt);
     this.broadcast(now);
     this.captureMouse(c);
   }
 
   // --- internals -----------------------------------------------------------
+
+  /** Is the pet where a scene can start at its feet: on them, in nobody's hand, not hiding, not out for attention, not stuck to the mouse? */
+  private calm(m: Member): boolean {
+    const p = m.pet;
+    return !m.offstage && STAGEABLE.has(p.view.state) && !p.peeking && !p.attached && !p.pressed && !p.seekingAttention && p.mode !== 'attach';
+  }
+
+  /** The window a point of the shared space is in, or the one nearest to it. */
+  private windowAt(p: Vec2): StageWindow | null {
+    let best: StageWindow | null = null;
+    let bestGap = Infinity;
+    for (const win of this.windows.keys()) {
+      const a = win.area;
+      const gap = Math.hypot(p.x - clamp(p.x, a.x, a.x + a.width), p.y - clamp(p.y, a.y, a.y + a.height));
+      if (gap < bestGap) {
+        best = win;
+        bestGap = gap;
+      }
+    }
+    return best;
+  }
+
+  /** The pet leaves the screens for the scene, whatever it was doing: it is let go of, and stays as it was until it is back. */
+  private stepOut(m: Member): void {
+    m.offstage = true;
+    m.pet.cancelPointer();
+    m.pet.pointerLeave();
+    if (this.pressed?.member === m) this.pressed = null;
+  }
+
+  /** A scene ends: its window is told (unless it ended it itself), and the pets of its cast are back where they were. */
+  private endScene(tell: boolean): void {
+    const s = this.scene;
+    if (!s) return;
+    this.scene = null;
+    if (tell) s.win.scene?.({ kind: 'stop', run: s.run });
+    for (const m of s.cast) {
+      if (!m.offstage) continue;
+      m.offstage = false;
+      // what was sent before is not on the screens any more: send the pet again, and greet the audience
+      m.sent.state = '';
+      m.from = null;
+      m.pet.say('start');
+    }
+    this.deps.sceneChanged?.();
+  }
+
+  /** A scene that does not get ready, or does not end, is given up on. */
+  private watchScene(now: number): void {
+    const s = this.scene;
+    if (!s) return;
+    const limit = s.phase === 'loading' ? SCENE_LOAD_MS : s.manifest.maxMs;
+    if (now - s.since > limit) this.stopScene(s.phase === 'loading' ? 'was not ready in time' : 'did not end in time');
+  }
 
   /** Writes down when a pet takes to the side of a window and when it lets go of it, and whether the window was still listed then. */
   private noteWindow(m: Member): void {
@@ -353,8 +518,10 @@ export class Stage {
 
   /** Three clicks on a pet send everyone to hide; a click on one that hides brings everyone out. */
   private answerClick(m: Member): void {
-    if (m.pet.takeTriple()) this.peekAll(m);
-    else if (m.pet.takeFound()) this.seekAll(m);
+    if (m.pet.takeTriple()) {
+      this.stopScene('stopped, the pets go to hide');
+      this.peekAll(m);
+    } else if (m.pet.takeFound()) this.seekAll(m);
   }
 
   private peekAll(origin: Member): boolean {
@@ -498,7 +665,7 @@ export class Stage {
       x: standing ? this.startX(first, standing) : undefined,
       config: { scale: s.scale, roam: s.roam, sprite: skin.box, hitbox: skin.hitbox, peek: skin.peek, hang: skin.hang },
     });
-    const m: Member = { id, pet, skin, from: null, v: { x: 0, y: 0 }, sent: { state: '', facing: 0, interactive: false, scale: 0, particles: 0 }, sentAt: -Infinity, hidesAt: null };
+    const m: Member = { id, pet, skin, from: null, v: { x: 0, y: 0 }, sent: { state: '', facing: 0, interactive: false, scale: 0, particles: 0 }, sentAt: -Infinity, hidesAt: null, offstage: false };
     pet.setSpeech(s.speech);
     pet.setTricks(s.tricks);
     // only the main character (the one that is not a friend) looks for attention, and only where the cursor can be moved
@@ -537,7 +704,7 @@ export class Stage {
   private frontAt(p: Vec2): Member | null {
     let best: Member | null = null;
     for (const m of this.members) {
-      if (!m.pet.view.interactive || !m.pet.isOver(p)) continue;
+      if (m.offstage || !m.pet.view.interactive || !m.pet.isOver(p)) continue;
       if (!best || m.pet.view.y > best.pet.view.y) best = m;
     }
     return best;
@@ -578,7 +745,7 @@ export class Stage {
   }
 
   private broadcast(now: number): void {
-    const seen = this.members.map((m) => {
+    const seen = this.members.filter((m) => !m.offstage).map((m) => {
       const v = m.pet.view;
       const s = m.sent;
       const changed =
@@ -608,9 +775,12 @@ export class Stage {
   private captureMouse(c: Vec2): void {
     if (this.members.length === 0) return;
     const covered = this.deps.covered(c);
-    const onPet = !covered && this.members.some((m) => m.pet.view.interactive && m.pet.isOver(c));
+    const onPet = !covered && this.members.some((m) => !m.offstage && m.pet.view.interactive && m.pet.isOver(c));
+    // the picture of a scene that plays takes the mouse too, so that a click on it can end it
+    const sc = this.scene;
+    const onPicture = !covered && sc?.phase === 'playing' && contains(sc.win.area, c) && onScene(sc.rect, sc.manifest.hitbox, c);
     for (const [win, st] of this.windows) {
-      const take = this.pressed ? win === this.pressed.win : onPet && contains(win.area, c);
+      const take = this.pressed ? win === this.pressed.win : (onPet && contains(win.area, c)) || (onPicture && win === sc?.win);
       if (take === !st.ignoring) continue;
       st.ignoring = !take;
       win.setIgnoring(!take);

@@ -1,6 +1,7 @@
 import { app, BrowserWindow } from 'electron';
 import path from 'node:path';
 import type { DisplayInfo } from '../shared/displays';
+import type { SceneCommand } from '../shared/scene';
 import { IPC, type Area, type ViewFrame } from '../shared/types';
 import { log } from './log';
 import type { StageWindow } from './stage';
@@ -45,6 +46,8 @@ export class Overlay implements StageWindow {
         nodeIntegration: false,
         sandbox: true,
         backgroundThrottling: false,
+        // a scene starts by itself (from the tray), so its sound must not wait for a click on a window nobody can click
+        autoplayPolicy: 'no-user-gesture-required',
         spellcheck: false,
         devTools: !app.isPackaged,
       },
@@ -108,6 +111,10 @@ export class Overlay implements StageWindow {
 
   send(frames: ViewFrame[]): void {
     this.tell(IPC.view, frames);
+  }
+
+  scene(command: SceneCommand): void {
+    this.tell(IPC.scene, command);
   }
 
   /** Sends to the page once it is up. */

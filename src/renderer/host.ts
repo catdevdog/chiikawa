@@ -1,5 +1,6 @@
 import type { Mode, Roam, Vec2 } from '../engine/types';
 import type { Battery } from '../shared/power';
+import type { SceneCommand, SceneStateReport } from '../shared/scene';
 import { DEFAULT_SETTINGS, type Area, type InitInfo, type PointerReport, type Settings, type SkinInfo, type SkinReport, type ViewFrame } from '../shared/types';
 
 /**
@@ -17,6 +18,8 @@ export interface Host {
   onReloadSkin(cb: () => void): void;
   /** Electron: the pets as simulated by the main process that are in this window (none: nothing to draw here) */
   onView(cb: (frames: ViewFrame[]) => void): void;
+  /** Electron: a scene to play in this window, to end, or to play at another volume */
+  onScene(cb: (command: SceneCommand) => void): void;
   /** harness: where the browser's pointer is */
   onCursor(cb: (p: Vec2) => void): void;
   /** Electron: a mouse button went down or up on the pet */
@@ -25,6 +28,8 @@ export interface Host {
   reportSkin(skin: SkinReport): void;
   /** Electron: the charge and charger of this computer, so that the pet can notice when it runs low */
   reportBattery(battery: Battery): void;
+  /** Electron: whether the scene this window was given plays, is over, or could not be played */
+  reportScene(report: SceneStateReport): void;
   log(level: 'info' | 'warn' | 'error', message: string): void;
   /** harness only: the on-page controls change settings through this */
   patchSettings?(patch: Partial<Settings>): void;
@@ -40,10 +45,12 @@ export function pickHost(): Host {
     onArea: (cb) => api.onArea(cb),
     onReloadSkin: (cb) => api.onReloadSkin(cb),
     onView: (cb) => api.onView(cb),
+    onScene: (cb) => api.onScene(cb),
     onCursor: () => {},
     pointer: (r) => api.pointer(r),
     reportSkin: (g) => api.reportSkin(g),
     reportBattery: (b) => api.reportBattery(b),
+    reportScene: (r) => api.reportScene(r),
     log: (level, message) => api.log(level, message),
   };
 }
@@ -88,10 +95,12 @@ function browserHost(): Host {
     onArea: () => {},
     onReloadSkin: () => {},
     onView: () => {},
+    onScene: () => {},
     onCursor: (cb) => addEventListener('pointermove', (e) => cb({ x: e.clientX, y: e.clientY })),
     pointer: () => {},
     reportSkin: () => {},
     reportBattery: () => {},
+    reportScene: () => {},
     log: (level, message) => console[level](message),
     patchSettings(patch) {
       settings = { ...settings, ...patch };

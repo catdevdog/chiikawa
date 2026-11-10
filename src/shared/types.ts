@@ -23,6 +23,8 @@ export interface Settings {
   windows: boolean;
   /** an experiment: a pet that has been left alone for long looks for attention, and pulls the mouse cursor away with it (Windows only) */
   attention: boolean;
+  /** how loud the sound of a scene is, from 0 (off) to 1 */
+  volume: number;
 }
 
 /** How many friends a pet can have (so the screens hold at most one more than this). */
@@ -42,6 +44,7 @@ export const DEFAULT_SETTINGS: Settings = {
   friends: [],
   windows: true,
   attention: false,
+  volume: 0.6,
 };
 
 export interface SkinInfo {
@@ -116,6 +119,8 @@ export const IPC = {
   battery: 'buddy:battery',
   log: 'buddy:log',
   reloadSkin: 'buddy:reload-skin',
+  scene: 'buddy:scene',
+  sceneState: 'buddy:scene-state',
   makerExisting: 'buddy:maker-existing',
   makerSave: 'buddy:maker-save',
   makerApply: 'buddy:maker-apply',

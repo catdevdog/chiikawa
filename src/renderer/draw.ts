@@ -1,10 +1,13 @@
 import { HANG_SHOWN } from '../engine/peek';
 import type { Particle, PetView } from '../engine/types';
+import type { DrawnScene } from './scene';
 import type { Skin } from './skin';
 
 export interface DrawOptions {
   /** outline the hitbox and feet point */
   debug?: boolean;
+  /** a scene that plays: it stands on the floor among the pets, and the nearer ones are in front of it */
+  scene?: DrawnScene | null;
 }
 
 /** The part of the shared screen space this canvas shows: where its corner is, and how big it is. */
@@ -30,10 +33,18 @@ export function drawScene(ctx: CanvasRenderingContext2D, pets: readonly DrawnPet
   ctx.save();
   ctx.translate(-view.x, -view.y);
   const order = pets.length > 1 ? [...pets].sort((a, b) => a.view.y - b.view.y) : pets;
+  const scene = opts.scene ?? null;
+  let sceneDrawn = scene === null;
   for (const p of order) {
+    // the pets that stand further away than the scene's feet are behind it
+    if (!sceneDrawn && scene!.feetY <= p.view.y) {
+      scene!.draw(ctx);
+      sceneDrawn = true;
+    }
     drawShadow(ctx, p.view, p.skin);
     drawPet(ctx, p.view, p.skin);
   }
+  if (!sceneDrawn) scene!.draw(ctx);
   for (const p of order) drawParticles(ctx, p.view.particles, p.skin.textColor);
   if (opts.debug) for (const p of order) drawDebug(ctx, p.view);
   ctx.restore();

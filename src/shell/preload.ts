@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { Battery } from '../shared/power';
+import type { SceneCommand, SceneStateReport } from '../shared/scene';
 import { IPC, type Area, type InitInfo, type PointerReport, type Settings, type SkinReport, type ViewFrame } from '../shared/types';
 
 function on<T>(channel: string, cb: (payload: T) => void): void {
@@ -13,8 +14,10 @@ contextBridge.exposeInMainWorld('buddyHost', {
   onArea: (cb: (a: Area) => void) => on(IPC.area, cb),
   onView: (cb: (frames: ViewFrame[]) => void) => on(IPC.view, cb),
   onReloadSkin: (cb: () => void) => on(IPC.reloadSkin, cb),
+  onScene: (cb: (command: SceneCommand) => void) => on(IPC.scene, cb),
   pointer: (report: PointerReport) => ipcRenderer.send(IPC.pointer, report),
   reportSkin: (skin: SkinReport) => ipcRenderer.send(IPC.skin, skin),
   reportBattery: (battery: Battery) => ipcRenderer.send(IPC.battery, battery),
+  reportScene: (report: SceneStateReport) => ipcRenderer.send(IPC.sceneState, report),
   log: (level: string, message: string) => ipcRenderer.send(IPC.log, level, message),
 });

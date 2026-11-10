@@ -24,6 +24,11 @@ export class Sprite {
     this.total = acc;
   }
 
+  /** How long it plays before it starts again (ms); a picture that does not move goes on for ever. */
+  get duration(): number {
+    return this.frames.length === 1 ? Infinity : this.total;
+  }
+
   frameAt(ms: number): Frame {
     if (this.frames.length === 1 || !Number.isFinite(this.total) || this.total <= 0) return this.frames[0]!;
     const t = ms % this.total;
@@ -60,8 +65,8 @@ export interface Skin {
 /** The colour of spoken words when a skin does not choose one. */
 export const DEFAULT_TEXT_COLOR = '#4d5a8f';
 
-/** Pose files must stay inside the skin's own folder. */
-function resolveInside(dir: string, file: string): string {
+/** Pose files must stay inside the skin's own folder (and the files of a scene inside the scene's). */
+export function resolveInside(dir: string, file: string): string {
   const base = new URL(dir, location.href);
   const url = new URL(file, base);
   if (url.origin !== base.origin || !url.pathname.startsWith(base.pathname)) {
@@ -108,7 +113,8 @@ export async function loadSkin(id: string, base = '/skins'): Promise<Skin> {
   };
 }
 
-function loadPose(dir: string, source: PoseSource, size: { w: number; h: number }): Promise<Sprite> {
+/** The picture(s) of a pose source (a file, or a sprite sheet) in the folder `dir`: a skin's poses, and the picture of a scene. */
+export function loadPose(dir: string, source: PoseSource, size: { w: number; h: number }): Promise<Sprite> {
   if (typeof source === 'string') return loadSprite(resolveInside(dir, source), size);
   return loadSheet(resolveInside(dir, source.sheet), source);
 }

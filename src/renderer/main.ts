@@ -4,11 +4,14 @@ import { drawScene, type DrawnPet, type Viewport } from './draw';
 import { mountHarness } from './harness';
 import { pickHost } from './host';
 import { RemoteView } from './remote';
+import { ScenePlayer } from './scene';
 import { loadSkin, type Skin } from './skin';
 
 const canvas = document.getElementById('stage') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
 const host = pickHost();
+/** the scene this window plays, when it is given one */
+const scenes = new ScenePlayer((report) => host.reportScene(report), (level, message) => host.log(level, message));
 
 /** Calm poses (idle, sit, sleep) only need a slow refresh. */
 const CALM_REDRAW_MS = 66;
@@ -75,6 +78,9 @@ async function start(): Promise<void> {
     else queued.push(fn);
   };
   host.onView((frames) => remote.push(frames, performance.now()));
+  host.onScene((command) => scenes.handle(command));
+  // the end-to-end tests ask where the scene is
+  (window as unknown as { __buddyScene: ScenePlayer }).__buddyScene = scenes;
   host.onSettings((s) => later(() => void apply(s)));
   host.onArea((a) => later(() => place(a)));
   host.onReloadSkin(() => later(() => void Promise.all(wanted().map(loadSkinNow))));
@@ -277,10 +283,12 @@ async function start(): Promise<void> {
         const worn = skins.get(p.id);
         if (worn) shown.push({ view: p.view, skin: worn });
       }
-    if (shown.length > 0) {
-      // calm states only need a slow refresh
-      if (shown.some((p) => p.view.animating) || now - lastDraw >= CALM_REDRAW_MS) {
-        drawScene(ctx, shown, view, { debug });
+    scenes.tick(now);
+    const scene = scenes.drawable(now);
+    if (shown.length > 0 || scene) {
+      // calm states only need a slow refresh; a scene that plays moves at every frame
+      if (scene || shown.some((p) => p.view.animating) || now - lastDraw >= CALM_REDRAW_MS) {
+        drawScene(ctx, shown, view, { debug, scene });
         lastDraw = now;
         drawn = true;
       }
