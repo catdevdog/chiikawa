@@ -116,6 +116,14 @@ jobs:
             try { node scripts/win32-e2e.mjs buddy-smoke-window $setup } finally { Stop-Process -Id $window.Id -Force -ErrorAction SilentlyContinue }
             Write-Host '::endgroup::'
           }
+      # a scene (a video with transparency, painted as it is, kept together with its sound): the app is given one of made-up pictures and a
+      # made-up sound, and what the overlay really paints is looked at; it only tells
+      - name: Check that a scene is painted and kept together with its sound
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          npm install --no-save --no-audit --no-fund playwright-core@1.56.1
+          node scripts/scene-check.mjs
       # latest.yml (version, file name and checksum of the installer) and the .blockmap are what an installed app reads
       # to update itself, so a build without them is a broken release
       - name: Check the update files

@@ -28,8 +28,9 @@ src/shared/     메인과 렌더러가 공유하는 타입, 스킨 manifest 검�
 skins/default/  기본 마스코트 Sprout
 skins/usagi/ hachiware/ chiikawa/ rakko/    ちいかわ 캐릭터 스킨 (저작권은 권리자에게 있음)
 CHANGELOG.md    버전마다 바뀐 점 (릴리스 설명과 업데이트 알림에 쓰임)
-scripts/        빌드와 릴리스에 쓰는 스크립트
-docs/           사용법(GUIDE.md), 스킨(SKINS.md), 개발(DEVELOPMENT.md), 기획과 로드맵(PLAN.md)
+scripts/        빌드와 릴리스에 쓰는 스크립트, Windows 러너에서 앱을 확인하는 스크립트(`scene-check.mjs`는 장면의 투명도와 소리 맞춤을 본다)
+tests/fixtures/ 시험에 쓰는 작은 파일(직접 만든 투명 영상 `scene-alpha.webm`)
+docs/           사용법(GUIDE.md), 스킨(SKINS.md), 장면(SCENES.md), 개발(DEVELOPMENT.md), 기획과 로드맵(PLAN.md)
 ```
 
 ## 릴리스
